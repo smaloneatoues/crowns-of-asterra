@@ -66,6 +66,7 @@
   A.govAdmin = (s, p) => (p.governor && s.officers[p.governor] ? s.officers[p.governor].admin : 0);
   // Each province carries out one command per season.
   A.commandsLeft = (s, f) => A.provsOf(s, f).filter((p) => !p.acted).length;
+  A.courtFree = (s, f) => !s.factions[f].courtUsed;
   A.isMe = (s, f) => f === s.player && !s.autoPlayer;
 
   A.setGovernor = function (s, pid, oid) {
@@ -87,6 +88,7 @@
     const i = s.armies.findIndex((a) => a.id === id);
     if (i < 0) return;
     const o = A.O(s, s.armies[i].cmd);
+    if (s.companies) for (const c of Object.values(s.companies)) if (c.army === id) { c.army = null; c.p = s.armies[i].loc; }
     if (o && o.job && o.job.t === 'cmd' && o.job.a === id) o.job = null;
     s.armies.splice(i, 1);
   };

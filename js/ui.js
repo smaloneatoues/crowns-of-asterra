@@ -41,9 +41,12 @@
   }
   function courtNote() {
     const cp = A.commandProv(S, me(), 'market', withFrom('market', { mode: 'buy' })), left = A.commandsLeft(S, me());
-    return `<div class="cmd ${cp.p ? '' : 'done'}">${cp.p ? `✒ Court commands are carried from a province and use its command for the season. Next: <b>${esc(cp.p.name)}</b> (${left} yet to act). Select another free province to send from there.` : '✔ Every province has acted; no court commands can be sent until next season.'}</div>`;
+    return `<div class="cmd ${cp.p || cp.court ? '' : 'done'}">${cp.court ? '✒ Your <b>court</b> can handle one piece of business this season for free (an envoy, a reward, a plot, the market…). After that, court business uses up a province\'s command.' : cp.p ? `✒ Your court has acted. More court business uses a province\'s command. Next: <b>${esc(cp.p.name)}</b> (${left} yet to act). Select another free province to send from there.` : '✔ Your court and every province have acted; nothing more can be ordered until next season.'}</div>`;
   }
-  H.do = (d) => { const r = A.do(S, me(), d.id, withFrom(d.id, JSON.parse(d.args))); toast(r.ok ? r.msg : r.reason); render(); };
+  const SND = { recruit: 'recruit', muster: 'recruit', hire: 'recruit', levy: 'coin', market: 'coin', fortify: 'build', farms: 'build', trade: 'build', festival: 'event', aid: 'event', envoy: 'scroll', reward: 'coin', heir: 'bell', governor: 'scroll', awaken: 'star', omen: 'star', plot: 'plot' };
+  H.do = (d) => { const r = A.do(S, me(), d.id, withFrom(d.id, JSON.parse(d.args))); toast(r.ok ? r.msg : r.reason); A.sfx.play(r.ok ? SND[d.id] || 'click' : 'deny'); render(); };
+  H.snd = (d) => { A.sfx.toggle(d.id); render(); };
+  const audioBtns = () => `<button class="mini aud ${A.sfx.pref.sound ? '' : 'off'}" data-a="snd" data-id="sound" title="Sound effects: ${A.sfx.pref.sound ? 'on' : 'off'}">♫ FX</button><button class="mini aud ${A.sfx.pref.music ? '' : 'off'}" data-a="snd" data-id="music" title="Music: ${A.sfx.pref.music ? 'on' : 'off'}">♪ Music</button>`;
   H.nextProv = () => {
     const ps = A.provsOf(S, me()).filter((p) => !p.acted); if (!ps.length) { toast('Every province has acted this season.'); return; }
     const i = ps.findIndex((p) => p.id === ui.sel); ui.sel = ps[(i + 1) % ps.length].id; ui.tab = 'province'; ui.mode = null; render();
@@ -62,6 +65,7 @@
         <button class="big" data-a="guide">How to Play</button>
       </div>
       ${A.store.ok() ? '' : '<p class="why">This browser is blocking local storage, so saving is unavailable.</p>'}
+      <div class="row center">${audioBtns()}</div>
     </div>`;
   }
   function renderNew() {
@@ -108,9 +112,10 @@
       <div class="stat" title="The season. Winter: food upkeep ×1.5 and attackers fight at −10 morale."><b>${A.dateStr(S)}</b></div>
       <div class="stat" title="Treasury. This season: +${fc.gold} income, −${fc.upGold} upkeep.">${A.art.icon('coin')} <b>${fac.gold}</b> <small class="${fc.netGold < 0 ? 'neg' : 'pos'}">${sign(fc.netGold)}</small></div>
       <div class="stat" title="Granaries. This season: +${fc.food} harvest, −${fc.upFood} eaten. Harvests peak in autumn and almost stop in winter.">${A.art.icon('wheat')} <b>${fac.food}</b> <small class="${fc.netFood < 0 ? 'neg' : 'pos'}">${sign(fc.netFood)}</small></div>
-      <div class="stat" title="Provinces that have not yet carried out their command. Each province acts once per season. Court business (envoys, rewards, the market) is carried from a province and uses its command. Marching and troop transfers are free.">${A.art.icon('scroll')} <b>${left}</b>/${max} to act <button class="mini" data-a="nextProv" ${left && !S.over && !ui.busy ? '' : 'disabled'} title="Jump to the next province awaiting a command (N)">Next ▶</button></div>
+      <div class="stat" title="Provinces that have not yet carried out their command. Each province acts once per season. Court business (envoys, rewards, the market) is carried from a province and uses its command. Marching and troop transfers are free.">${A.art.icon('scroll')} <b>${left}</b>/${max} to act <button class="mini" data-a="nextProv" ${left && !S.over && !ui.busy ? '' : 'disabled'} title="Jump to the next province awaiting a command (N)">Next ▶</button> <span class="court ${fac.courtUsed ? 'used' : ''}" title="Your court handles one piece of court business (envoy, reward, heir, market, plot, the rite) each season without using a province's command.">Court ${fac.courtUsed ? '✔' : '✒'}</span></div>
       <div class="stat" title="Celestial seals held. Three awaken the Starwyrm.">${A.art.icon('seal')} ${beast}</div>
       <div class="grow"></div>
+      ${audioBtns()}
       <button data-a="saves" ${ui.busy ? 'disabled' : ''}>Save / Load</button>
       <button data-a="menu" ${ui.busy ? 'disabled' : ''}>Menu</button>
       ${S.over ? '<button class="go" data-a="summary">Campaign Summary</button>' : `<button class="go" data-a="endSeason" ${ui.busy ? 'disabled' : ''}>${ui.busy ? 'Rivals are moving…' : 'End Season ▶'}</button>`}
@@ -125,7 +130,7 @@
       <g filter="url(#rough)"><polygon class="shore2" points="${art.landPoints}"/><polygon class="shore" points="${art.landPoints}"/><polygon class="land" points="${art.landPoints}"/>`;
     const targets = {};
     if (ui.mode && ui.mode.t === 'march') { const army = A.army(S, ui.mode.army); if (army) for (const p of A.provs(S)) { const c = A.war.marchCheck(S, army, p.id); if (c.ok) targets[p.id] = c.kind; } }
-    for (const p of A.provs(S)) o += `<polygon class="cell ${p.owner ? '' : 'free'} ${ui.sel === p.id ? 'sel' : ''} ${targets[p.id] ? 'ctgt-' + targets[p.id] : ''}" data-a="prov" data-id="${p.id}" points="${cells[p.id].points}" fill="${A.fcolor(p.owner)}"/>`;
+    for (const p of A.provs(S)) o += `<polygon class="cell ${p.owner ? '' : 'free'} ${ui.flash === p.id ? 'flash' : ''} ${ui.sel === p.id ? 'sel' : ''} ${targets[p.id] ? 'ctgt-' + targets[p.id] : ''}" data-a="prov" data-id="${p.id}" points="${cells[p.id].points}" fill="${A.fcolor(p.owner)}"/>`;
     o += `</g><g class="marks">${A.provs(S).map((p) => cells[p.id].marks).join('')}</g>`;
     for (const [a, b] of A.EDGES) { const p = A.P(S, a), q = A.P(S, b); const hot = ui.sel && (a === ui.sel || b === ui.sel); o += `<line class="road ${hot ? 'hot' : ''}" x1="${p.x}" y1="${p.y}" x2="${q.x}" y2="${q.y}"/>`; }
     o += `<rect class="grain" x="-34" y="-22" width="1068" height="734" filter="url(#grain)"/>${art.compass(985, 655)}<text class="cartouche" x="-14" y="700">The Realm of Asterra</text>`;
@@ -193,14 +198,15 @@
       const ans = await ask(`<h2>⚔ Attack ${esc(dest.name)}?</h2>
         <p>${esc(cmd.name)} (leadership ${cmd.lead}) against ${esc(est.def.cmdName)} (leadership ${est.def.lead}) — ${A.TERRAIN[dest.terrain].name.toLowerCase()}, walls ${dest.fort}.</p>
         ${forceTable([['Your army', army.troops], ['Defenders', est.def.troops]])}
+        ${coLine(A.champ.withArmy(S, army), 'ride with your army')}${coLine(dest.owner ? A.champ.at(S, dest.owner, pid) : null, 'stand with the defenders')}
         <p>Advisor's estimate: <b class="odds-${oddsWord(est.ratio).toLowerCase()}">${oddsWord(est.ratio)}</b> <span class="note">(strength ratio ${est.ratio.toFixed(2)}, counting commanders, walls and terrain — tactics can beat the estimate)</span></p>
         ${warn.map((w) => `<p class="warn">⚠ ${w}</p>`).join('')}
         ${beastOk ? `<label class="chk"><input type="checkbox" name="beast"> If delegated, let ${esc(cmd.name)} call down the Starwyrm (1 of ${fac.beast.charges} charges)</label>` : ''}
-        <div class="row">${btn('Command in person', 'command', 'go')}${btn(`Delegate to ${esc(cmd.name)}`, 'delegate')}${btn('Cancel', 'cancel')}</div>`);
+        <div class="row">${btn('Command in person', 'command', 'go')}${btn(`Let ${esc(cmd.name)} fight (watch)`, 'watch')}${btn('Skip to result', 'delegate')}${btn('Cancel', 'cancel')}</div>`);
       if (ans.v === 'cancel') return;
       opts = { mode: ans.v, beast: !!ans.form.beast };
     }
-    ui.mode = null; ui.busy = true; render();
+    ui.mode = null; ui.busy = true; render(); A.sfx.play('march');
     try {
       const r = await A.war.march(S, army.id, pid, handler, opts);
       if (!r.ok) toast(r.reason); else if (r.msg) toast(r.msg);
@@ -212,6 +218,7 @@
   }
 
   // Battles that involve the player: command in person or delegate, then a report.
+  const coLine = (x, what) => (x ? `<p class="note">✪ <b>${esc(x.D.name)}</b> (${x.c.men} men) ${what}. ${esc(x.D.desc)}</p>` : '');
   const handler = {
     async fight(b, ctx) {
       let mode = ctx.mode, useBeast = ctx.beast;
@@ -222,12 +229,14 @@
         const ans = await ask(`<h2>⛨ ${esc(p.name)} is under attack!</h2>
           <p>${esc(b.spec.att.name)} marches on ${esc(p.name)} under ${esc(b.spec.att.cmd)} (leadership ${b.spec.att.lead}). Your defence is led by ${esc(b.spec.def.cmd)} (leadership ${b.spec.def.lead}) — ${A.TERRAIN[p.terrain].name.toLowerCase()}, walls ${p.fort}.</p>
           ${forceTable([['Attackers', b.spec.att.troops], ['Your defenders', b.spec.def.troops]])}
+          ${b.spec.att.champ ? `<p class="note">✪ <b>${esc(A.COMPANIES[b.spec.att.champ.id].name)}</b> (${b.spec.att.champ.men} men) ride with the attackers.</p>` : ''}${b.spec.def.champ ? `<p class="note">✪ <b>${esc(A.COMPANIES[b.spec.def.champ.id].name)}</b> (${b.spec.def.champ.men} men) stand with you.</p>` : ''}
           ${sp.avail ? `<label class="chk"><input type="checkbox" name="beast"> If delegated, allow the Starwyrm to be called down (1 charge)</label>` : ''}
-          <div class="row">${btn('Command the defence', 'command', 'go')}${btn(`Delegate to ${esc(b.spec.def.cmd)}`, 'delegate')}</div>`);
+          <div class="row">${btn('Command the defence', 'command', 'go')}${btn(`Let ${esc(b.spec.def.cmd)} fight (watch)`, 'watch')}${btn('Skip to result', 'delegate')}</div>`);
         mode = ans.v; useBeast = !!ans.form.beast;
       }
+      ctx.rep.watched = mode !== 'delegate';
       if (mode === 'command') await A.battleUI.play(b, ctx.side);
-      else { sp.auto = !!useBeast; A.battle.autoResolve(b); }
+      else { sp.auto = !!useBeast; if (mode === 'watch') await A.battleUI.play(b, ctx.side, { watch: true }); else A.battle.autoResolve(b); }
     },
     async report(rep) {
       const mine = rep.attF === me() ? 'att' : 'def', won = (mine === 'att') === rep.won;
@@ -242,6 +251,8 @@
           ${rep.notes.map((n) => `<p>• ${esc(n)}</p>`).join('')}
           <details><summary>Battle log (${rep.log.length} entries)</summary><div class="blog">${rep.log.map((l) => `<div>${esc(l)}</div>`).join('')}</div></details>`;
       }
+      if (rep.walkover || !rep.res || !rep.watched) A.sfx.play(won ? 'win' : 'lose');
+      if (won && mine === 'att') ui.flash = rep.pid;
       await ask(`<h2 class="${won ? 'pos' : 'neg'}">${won ? '✔ Victory' : '✖ Defeat'} at ${esc(rep.name)}</h2>${body}<div class="row">${btn('Continue', 'ok', 'go')}</div>`);
     },
   };
@@ -298,6 +309,10 @@
         h += '</div>';
       }
     }
+    { const all = A.champ.all(S); for (const id in all) { const c = all[id]; if (!c.f || A.champ.loc(S, c) !== p.id) continue; const D = A.COMPANIES[id], own = c.f === f;
+      h += `<div class="armyrow co"><div><b>✪ ${esc(D.name)}</b> <small>${c.men}/${D.men} men · ${esc(A.fname(c.f))}</small><br><small>${c.army != null ? `riding with ${esc(A.O(S, A.army(S, c.army).cmd).name)}'s army` : 'quartered in the garrison; they defend this province'}</small></div>`;
+      if (own && !S.over) h += `<div class="btns">${c.army == null ? A.armiesAt(S, p.id, f).map((a) => `<button data-a="do" data-id="coJoin" data-args='{"army":${a.id}}'>Join ${esc(A.O(S, a.cmd).name.split(' ')[0])}</button>`).join('') || '<small class="note">muster an army here to take them to war</small>' : '<button data-a="do" data-id="coLeave" data-args="{}">Return to garrison</button>'}</div>`;
+      h += '</div>'; } }
     h += `<div class="sub2">Roads to: ${p.nb.map((n) => `<a data-a="prov" data-id="${n}">${esc(A.P(S, n).name)}</a>`).join(', ')}</div>`;
     if (S.over) return h;
     // March-here shortcuts with reasons
@@ -308,11 +323,17 @@
     }
     if (!mine) {
       const st = p.owner ? A.dip.status(S, f, p.owner) : null;
+      if (p.owner) {
+        h += `<h3>Dirty tricks</h3>${courtNote()}<p class="note">Send an officer to make trouble here. Each plot shows its chance when you pick the agent. If it is traced to you, ${esc(A.fname(p.owner))} will like you less, and a failed agent may be caught.</p>`;
+        for (const type in A.PLOTS) { const P = A.PLOTS[type], agent = A.officersOf(S, f).find((o) => !A.can(S, f, 'plot', { type, p: p.id, o: o.id })), why = agent ? null : A.can(S, f, 'plot', { type, p: p.id, o: (A.officersOf(S, f).find((o) => !o.ruler) || {}).id });
+          h += `<div class="act"><button data-a="plot" data-id="${p.id}" data-type="${type}" ${why ? 'disabled' : ''}>${P.label}…</button><span class="${why ? 'why' : 'note'}">${why ? '✖ ' + esc(why) : (P.gold ? P.gold + ' gold · ' : '') + esc(P.desc)}</span></div>`; }
+      }
       h += `<h3>Why can't I command here?</h3><p class="note">Commands can only be given in provinces you control. ${p.owner ? `${esc(A.fname(p.owner))} holds ${esc(p.name)}${st.type !== 'neutral' ? ` (you are ${st.type === 'war' ? 'at war' : 'bound by ' + st.type})` : ''}.` : 'This free province answers to no house and is defended by local militia.'} To take it, march an army into it from a neighbouring province${mineArmies.length ? '' : ' — first muster one in a province of your own'}.</p>`;
       return h;
     }
     const cap = A.cost.recruitCap(p);
-    h += `<div class="cmd ${p.acted ? 'done' : ''}">${p.acted ? '✔ ' + esc(p.name) + ' has carried out its command this season.' : '✒ ' + esc(p.name) + ' awaits your command — choose one this season.'}</div>`;
+    h += `<div class="cmd ${p.acted ? 'done' : ''}">${(p.settle || 0) > S.turn ? '⏳ ' + esc(p.name) + ' is still settling under its new ruler.' : p.acted ? '✔ ' + esc(p.name) + ' has carried out its command this season.' : '✒ ' + esc(p.name) + ' awaits your command — choose one this season.'}</div>`;
+    if ((p.settle || 0) > S.turn) return h + `<p class="warn">⚠ Newly conquered. ${esc(p.name)} will not follow commands for ${p.settle - S.turn} more season${p.settle - S.turn > 1 ? 's' : ''} (land taken from a house needs ${A.SETTLE_HOUSE} seasons to settle, free land ${A.SETTLE_FREE}). It still pays taxes, and armies here can march.</p>`;
     if (p.acted) return h + '<p class="note">It can act again next season. Armies here can still march, and troop transfers remain free.</p>';
     h += '<h3>Recruit</h3><div class="grid2">';
     for (const c of A.CLS) {
@@ -395,6 +416,25 @@
       <div class="vbox"><b>Recognized succession</b><ul>${li(pr.cap && pr.capSeasons >= A.RECOG_SEASONS, `Hold Aurelion for ${A.RECOG_SEASONS} seasons running (${pr.capSeasons})`)}${li(pr.n >= A.RECOG_PROVINCES, `Control ${A.RECOG_PROVINCES} provinces (${pr.n})`)}${li(pr.heirOk, 'Have a named, living heir')}${li(!pr.unrecognized.length, `A pact or alliance with every surviving house${pr.unrecognized.length ? ' — missing: ' + pr.unrecognized.map((g) => A.FDEF[g].short).join(', ') : ''}`)}</ul></div>
       <div class="vbox bad"><b>You lose if</b><ul><li>you lose your last province;</li><li>your ruler is slain or captured with no named heir and no officer of loyalty 50+;</li><li>a rival completes either path first.</li></ul></div>`;
   }
+  function companiesBox() {
+    const f = me(), all = A.champ.all(S), sel = A.P(S, ui.sel), here = sel && sel.owner === f ? sel : null;
+    let h = `<h3>Free companies</h3><p class="note">Elite sellswords, each one of a kind. A house may keep one. Hiring is a command of the province they join${here ? ` (now: <b>${esc(here.name)}</b>)` : ' — select one of your provinces first'}. They fight as an extra unit wherever they stand, and replace a quarter of their losses each season.</p>`;
+    for (const id in all) {
+      const c = all[id], D = A.COMPANIES[id], mine = c.f === f, loc = c.f ? A.P(S, A.champ.loc(S, c)) : null;
+      h += `<div class="corow ${mine ? 'mine' : ''}"><div class="grow"><b>✪ ${esc(D.name)}</b> <small>${A.art.unit(D.base, 13)} ${A.UNITS[D.base].name.toLowerCase()} · ${D.men} men · ${D.hire} gold, then ${D.fee}/season</small><br><small>${esc(D.desc)}</small><br>`;
+      if (mine) h += `<span class="pos">In your pay: ${c.men}/${D.men} men at <a data-a="prov" data-id="${loc.id}">${esc(loc.name)}</a>${c.army != null ? ' (with an army)' : ' (in garrison)'}.</span></div>${S.over ? '' : '<button data-a="do" data-id="coDismiss" data-args="{}">Dismiss</button>'}</div>`;
+      else if (c.f) h += `<span class="why">Under contract to ${esc(A.fname(c.f))}.</span></div></div>`;
+      else { const why = S.over ? 'The campaign is over.' : here ? A.can(S, f, 'hire', { p: here.id, id }) : 'Select one of your provinces on the map first.'; h += `${why ? `<span class="why">✖ ${esc(why)}</span>` : '<span class="note">Free to hire.</span>'}</div><button data-a="do" data-id="hire" data-args='${esc(JSON.stringify({ p: here ? here.id : null, id }))}' ${why ? 'disabled' : ''}>Hire</button></div>`; }
+    }
+    return h;
+  }
+  H.plot = async (d) => {
+    const p = A.P(S, d.id), type = d.type, P = A.PLOTS[type];
+    const v = await pickOfficer(`${P.label}: ${esc(p.name)}`, (o) => A.can(S, me(), 'plot', { type, p: p.id, o: o.id }), (o) => { const c = A.plot.chance(S, me(), { type, p: p.id, o: o.id }); return `${c.pct}% to succeed — ${c.parts.map((x) => `${x[0]} ${sign(x[1])}`).join(', ')}`; });
+    if (v === 'cancel') return;
+    const r = A.do(S, me(), 'plot', withFrom('plot', { type, p: p.id, o: v })); A.sfx.play(r.ok ? 'plot' : 'deny'); render();
+    await ask(`<h2>${esc(P.label)}</h2><p>${esc(r.ok ? r.msg : r.reason)}</p><div class="row">${btn('Continue', 'ok', 'go')}</div>`); render();
+  };
   function realmPanel() {
     const f = me(), fac = A.F(S, f), fc = A.econ.forecast(S, f), yf = A.econ.yearFood(S, f);
     let h = `<h2>${esc(A.fname(f))}</h2><div class="kvs">
@@ -405,8 +445,9 @@
       ${kv('Strength', A.strength(S, f), 'Troop value plus 100 per province. Used in diplomacy odds.')}
     </div>
     <p class="note">Unpaid soldiers: 6% desert and officers lose loyalty. Unfed soldiers: 10% desert (18% in winter) and provinces lose loyalty.</p>
+    ${A.econ.strain(S, f) < 1 ? `<p class="warn">⚠ Your realm is stretched thin: ${A.provsOf(S, f).length} provinces. Every province past the twelfth costs 2% of all gold income (now −${Math.round((1 - A.econ.strain(S, f)) * 100)}%, at most −12%).</p>` : ''}
     <h3>Court commands</h3>${S.over ? '' : courtNote()}<h3>Grain market</h3><div class="grid2">${actBtn('Buy 100 food', 'market', { mode: 'buy' }, `${A.cost.marketBuy} gold`)}${actBtn('Sell 100 food', 'market', { mode: 'sell' }, `+${A.cost.marketSell} gold`)}</div>
-    ${victoryBox()}<h3>Your provinces</h3><table class="tt click"><tr><th>Province</th><th title="Prosperity">Pro</th><th title="Loyalty">Loy</th><th title="Unrest">Unr</th><th>Walls</th><th>Men</th><th>Governor</th><th title="Has this province used its command this season?">Cmd</th></tr>`;
+    ${companiesBox()}${victoryBox()}<h3>Your provinces</h3><table class="tt click"><tr><th>Province</th><th title="Prosperity">Pro</th><th title="Loyalty">Loy</th><th title="Unrest">Unr</th><th>Walls</th><th>Men</th><th>Governor</th><th title="Has this province used its command this season?">Cmd</th></tr>`;
     for (const p of A.provsOf(S, f)) h += `<tr data-a="prov" data-id="${p.id}"><th>${esc(p.name)}</th><td>${p.pros}</td><td class="${p.loyalty <= 30 ? 'neg' : ''}">${p.loyalty}</td><td class="${p.unrest >= 60 ? 'neg' : ''}">${p.unrest}</td><td>${p.fort}</td><td>${A.total(p.garrison)}</td><td>${p.governor ? esc(A.O(S, p.governor).name.split(' ').slice(-1)[0]) : '<span class="why">none</span>'}</td><td>${p.acted ? '✔' : '✒'}</td></tr>`;
     return h + '</table>';
   }
@@ -486,13 +527,15 @@
 
   function guideHTML() {
     return `<h3>The goal</h3><p>You are the boss of one house. Five other houses want the same crown. Grab land, beat them or make friends with them, and become king or queen.</p>
-      <h3>Your turn</h3><ol class="rules"><li><b>Look at the map.</b> Click a province to see it. Your land is in your colour.</li><li><b>Give each province one job.</b> Every province you own can do <b>one thing</b> per turn: get more soldiers, build stuff, cheer people up, pick a governor, or make an army. Sending messengers, giving gifts to your officers, and other "king stuff" also uses up one province's job.</li><li><b>Gold dot = not done yet.</b> Press <b>Next ▶</b> (or the N key) to jump to the next province that still needs a job.</li><li><b>Moving is free.</b> Marching an army and moving soldiers around do not use up a job.</li><li><b>Press End Season.</b> The other houses take their turns, fights happen, and you get paid. One turn is one season. Four seasons make a year.</li></ol><p class="note">Can't click a button? Look under it. It always tells you why.</p>
-      <h3>Money and food</h3><ul class="rules"><li><b>Gold</b> buys things. <b>Food</b> feeds your soldiers. Every soldier costs both, every turn.</li><li>You get lots of food in <b>autumn</b> and almost none in <b>winter</b>. Save up before winter!</li><li>The top bar shows if you are gaining or losing this turn.</li><li>Keep your people happy. If <b>unrest</b> gets very high and <b>loyalty</b> gets very low, the province rebels and you lose it. Parties (festivals), food aid and a good governor fix that.</li></ul>
-      <h3>Fighting</h3><ul class="rules"><li>Soldiers sitting in a province only <b>defend</b> it. To attack, you need an <b>army</b>.</li><li>Press <b>Muster Army</b> to make one. You need soldiers and an officer who isn't busy.</li><li>Click the army's little flag on the map, then click where to go. <b>Green</b> = safe move. <b>Red</b> = attack!</li><li>Armies move 1 province per turn, or 2 if they stay on friendly land.</li><li>Before a fight you see both sides and who is likely to win. Then pick: <b>fight it yourself</b>, or let your officer <b>fight for you</b>.</li></ul>
-      <h3>In a battle</h3><ul class="rules"><li>Each round you get to use a few units. A better leader lets you use more.</li><li>A unit can move, then do one thing: attack, shoot, hold still, or smash a wall.</li><li><b>Infantry</b> (foot soldiers): tough all-rounders. They can climb walls.</li><li><b>Archers</b>: shoot from far away. Weak up close.</li><li><b>Cavalry</b> (horses): fast. They hit extra hard after a running start and they wreck archers. Don't run them into infantry that is holding still.</li><li><b>Siege crews</b>: slow, but they knock down walls.</li><li><b>Gang up!</b> If two of your units are touching the same enemy, you hit harder.</li><li>Units that get scared or lose most of their men <b>run away</b>.</li><li>The attacker has <b>12 rounds</b> to win. If time runs out, the defender wins. Attacking in winter is harder.</li></ul>
+      <h3>Your turn</h3><ol class="rules"><li><b>Look at the map.</b> Click a province to see it. Your land is in your colour.</li><li><b>Give each province one job.</b> Every province you own can do <b>one thing</b> per turn: get more soldiers, build stuff, cheer people up, pick a governor, or make an army. </li><li><b>Your court gets one free job too.</b> Sending a messenger, giving a gift to an officer, trading food or playing a dirty trick is "king stuff". The first one each turn is free. After that, king stuff uses up a province's job.</li><li><b>Gold dot = not done yet.</b> Press <b>Next ▶</b> (or the N key) to jump to the next province that still needs a job.</li><li><b>Moving is free.</b> Marching an army and moving soldiers around do not use up a job.</li><li><b>Press End Season.</b> The other houses take their turns, fights happen, and you get paid. One turn is one season. Four seasons make a year.</li></ol><p class="note">Can't click a button? Look under it. It always tells you why.</p>
+      <h3>Money and food</h3><ul class="rules"><li><b>Gold</b> buys things. <b>Food</b> feeds your soldiers. Every soldier costs both, every turn.</li><li>You get lots of food in <b>autumn</b> and almost none in <b>winter</b>. Save up before winter!</li><li>The top bar shows if you are gaining or losing this turn.</li><li><b>New land needs time.</b> A province you just took from another house won't follow orders for 2 turns (1 turn for free land). It still pays you.</li><li><b>Big kingdoms are harder to run.</b> Past 12 provinces you earn a bit less gold from each one, and the other houses start to team up against you.</li><li>Keep your people happy. If <b>unrest</b> gets very high and <b>loyalty</b> gets very low, the province rebels and you lose it. Parties (festivals), food aid and a good governor fix that.</li></ul>
+      <h3>Fighting</h3><ul class="rules"><li>Soldiers sitting in a province only <b>defend</b> it. To attack, you need an <b>army</b>.</li><li>Press <b>Muster Army</b> to make one. You need soldiers and an officer who isn't busy.</li><li>Click the army's little flag on the map, then click where to go. <b>Green</b> = safe move. <b>Red</b> = attack!</li><li>Armies move 1 province per turn, or 2 if they stay on friendly land.</li><li>Before a fight you see both sides and who is likely to win. Then pick: <b>fight it yourself</b>, <b>watch</b> your officer fight it, or <b>skip</b> straight to the result.</li></ul>
+      <h3>Free companies (hired heroes)</h3><ul class="rules"><li>There are 5 special squads for hire: super lancers, armoured halberdiers, sharpshooters, wall-breakers and magic singers. Find them in the <b>Realm</b> tab.</li><li>Each one is one of a kind. If you hire it, nobody else can. You can keep <b>one</b> at a time.</li><li>They cost gold to hire and a little gold every turn. If you can't pay, they leave.</li><li>They guard the province they are in. To take them to war, press <b>Join</b> next to an army in the same province.</li><li>In battle they have a gold border and a ✪.</li></ul>
+      <h3>Dirty tricks</h3><ul class="rules"><li>Click an enemy province that touches your land. You can send an officer to <b>raid</b> it for gold, <b>sabotage</b> its walls, <b>stir up</b> its people, or <b>bribe</b> an enemy officer to join you.</li><li>You see your chance before you send anyone.</li><li>If you get caught, that house likes you less, and your officer might be locked up for 3 turns. Enemies can do all this to you too!</li></ul>
+      <h3>In a battle</h3><ul class="rules"><li>Each round you get to use a few units. A better leader lets you use more.</li><li>A unit can move, then do one thing: attack, shoot, hold still, or smash a wall.</li><li><b>Infantry</b> (foot soldiers): tough all-rounders. They can climb walls.</li><li><b>Archers</b>: shoot from far away. Weak up close.</li><li><b>Cavalry</b> (horses): fast. They hit extra hard after a running start and they wreck archers. Don't run them into infantry that is holding still.</li><li><b>Siege crews</b>: slow, but they knock down walls.</li><li><b>Gang up!</b> If two of your units are touching the same enemy, you hit harder.</li><li>Units that get scared or lose most of their men <b>run away</b>.</li><li>The attacker has <b>12 rounds</b> to win. If time runs out, the defender wins. Attacking in winter is harder.</li><li>Enemy moves play out one at a time. Click the field to speed them up.</li></ul>
       <h3>Making friends</h3><ul class="rules"><li>Open the <b>Diplomacy</b> tab to make deals. Every deal shows your <b>chance</b> of a yes and why.</li><li><b>Gifts</b> always work and make a house like you more.</li><li>A <b>pact</b> or <b>alliance</b> stops a house from attacking you.</li><li>Don't break a deal. Everyone remembers, and everyone trusts you less.</li></ul>
       <h3>The Starwyrm (the dragon)</h3><p class="note">There are 5 magic seals. Find them at old ruins (gold stars on the map), take them from a house by capturing its home castle, or trade for them. Get <b>3 seals</b> and pay a big price to wake the dragon. Then you can use its power in battle. The <b>Starwyrm</b> tab has the details.</p>
-      <h3>How you lose</h3><ul class="rules"><li>You lose all your land.</li><li>Your ruler dies and there is nobody to take over. Name an <b>heir</b> so that can't happen.</li><li>Another house wins first.</li></ul>`;
+      <h3>How you lose</h3><ul class="rules"><li>You lose all your land.</li><li>Your ruler dies and there is nobody to take over. Name an <b>heir</b> so that can't happen.</li><li>Another house wins first.</li></ul><p class="note">Sound and music can be switched on and off with the <b>♫ FX</b> and <b>♪ Music</b> buttons at the top.</p>`;
   }
   function guidePanel() { return `<h2>Guide</h2><div class="row"><button data-a="tutorial">Replay the tutorial</button></div>${guideHTML()}${victoryBox()}`; }
   H.guide = async () => { await ask(`<h2>How to Play</h2>${guideHTML()}<div class="row">${btn('Close', 'ok', 'go')}</div>`, 'wide'); };
@@ -500,10 +543,10 @@
   // ---------- Tutorial ----------
   const TUT = [
     ['Welcome to Asterra', (s) => `<p>You are the boss of <b>${esc(A.fname(s.player))}</b>. The old king is gone, and six houses all want the crown. You are one of them. Go get it!</p><p>Your land is in your colour. Each province shows the shield of whoever owns it. A <b>grey shield</b> means nobody owns it — those are the easy ones to grab first. Two towers mark a house's home castle. The crown marks the capital. A gold star marks old ruins.</p>`],
-    ['One job per province', () => '<p>Every turn, each province you own can do <b>one thing</b>: get soldiers, build, cheer people up, pick a governor, or make an army.</p><p>A <b>gold dot</b> means that province hasn\'t done its job yet. Press <b>Next ▶</b> at the top to jump to the next one.</p><p>More land = more jobs per turn. And if a button is greyed out, it always says <b>why</b> right under it.</p>'],
-    ['Armies', () => '<p>Soldiers in a province only <b>defend</b>. To attack, press <b>Muster Army</b> to make an army with an officer in charge.</p><p>Then click the army\'s flag on the map and click where to go. <b>Green</b> is a safe move. <b>Red</b> is an attack.</p><p>Before a fight you see who is likely to win. You can <b>fight it yourself</b> or let your officer <b>fight for you</b>.</p>'],
+    ['One job per province', () => '<p>Every turn, each province you own can do <b>one thing</b>: get soldiers, build, cheer people up, pick a governor, or make an army.</p><p>A <b>gold dot</b> means that province hasn\'t done its job yet. Press <b>Next ▶</b> at the top to jump to the next one.</p><p>Your <b>court</b> also gets one free job each turn for "king stuff" like messengers, gifts and dirty tricks.</p><p>More land = more jobs per turn. And if a button is greyed out, it always says <b>why</b> right under it.</p>'],
+    ['Armies', () => '<p>Soldiers in a province only <b>defend</b>. To attack, press <b>Muster Army</b> to make an army with an officer in charge.</p><p>Then click the army\'s flag on the map and click where to go. <b>Green</b> is a safe move. <b>Red</b> is an attack.</p><p>Before a fight you see who is likely to win. You can <b>fight it yourself</b>, <b>watch</b> your officer fight, or <b>skip</b> to the result.</p><p>Got spare gold? Hire a <b>free company</b> in the Realm tab. They are one-of-a-kind hero squads.</p>'],
     ['Gold, food and happy people', () => '<p>Soldiers cost <b>gold</b> and <b>food</b> every turn. You get lots of food in autumn and almost none in winter, so save up!</p><p>The top bar shows if you are gaining or losing this turn.</p><p>If people get too unhappy, the province <b>rebels</b> and you lose it. Throw a festival, hand out food, or put a good governor in charge.</p>'],
-    ['Friends and the dragon', () => '<p>In the <b>Diplomacy</b> tab you can make deals with other houses. Every deal shows your chance of getting a yes. They will send deals to you too.</p><p>There are 5 magic seals in the world. Collect <b>3</b> to wake a sleeping dragon, the <b>Starwyrm</b>, and use its power in battle.</p>'],
+    ['Friends and the dragon', () => '<p>In the <b>Diplomacy</b> tab you can make deals with other houses. Every deal shows your chance of getting a yes. They will send deals to you too.</p><p>Feeling sneaky? Click an enemy province next to yours to play a <b>dirty trick</b>: raid it, wreck its walls, or bribe its officer.</p><p>There are 5 magic seals in the world. Collect <b>3</b> to wake a sleeping dragon, the <b>Starwyrm</b>, and use its power in battle.</p>'],
     ['How to win', () => `<p><b>Way 1 — Take over:</b> own the capital, Aurelion, and ${A.WIN_PROVINCES} of the 24 provinces.</p><p><b>Way 2 — Be the king everyone agrees on:</b> hold Aurelion for ${A.RECOG_SEASONS} turns, own ${A.RECOG_PROVINCES} provinces, name an heir, and have a pact or alliance with every house still alive.</p><p>Stuck? The <b>Advisor</b> line above the panel always tells you a good next move. Have fun!</p>`],
   ];
   async function tutorial(force) {
@@ -528,12 +571,15 @@
     }
     if (S.pendingEvent) {
       const v = A.events.view(S, S.pendingEvent);
+      A.sfx.play('event');
       const ans = await ask(`<div class="sub2">${A.dateStr(S)} · Event</div><h2>${esc(v.title)}</h2><p>${esc(v.text)}</p>${v.choices.map((c, i) => `<div class="act"><button data-a="ans" data-v="${i}" ${c.why ? 'disabled' : ''}>${esc(c.label)}</button><span class="${c.why ? 'why' : 'note'}">${c.why ? '✖ ' + esc(c.why) + ' ' : ''}${esc(c.hint || '')}</span></div>`).join('')}`);
       const r = A.events.choose(S, +ans.v); render();
       await ask(`<h2>${esc(v.title)}</h2><p>${esc(r.ok ? r.text : r.reason)}</p><div class="row">${btn('Continue', 'ok', 'go')}</div>`);
     }
     autosave(); render();
+    if (ui.lastTurn !== S.turn) { ui.lastTurn = S.turn; seasonBanner(); }
   }
+  function seasonBanner() { const el = document.createElement('div'); el.className = 'season-banner s' + (S.turn % 4); el.innerHTML = `<b>${A.SEASONS[S.turn % 4]}</b><span>Year ${1 + Math.floor(S.turn / 4)}</span>`; document.body.appendChild(el); setTimeout(() => el.remove(), 2300); A.sfx.play('bell'); }
   function autosave() { if (S && A.store.ok()) A.store.save(S, 'auto'); }
   H.endSeason = async () => {
     if (ui.busy || S.over) return;
@@ -564,7 +610,7 @@
   };
   async function summary() {
     const o = S.over; if (!o) return;
-    const st = S.stats, won = o.result === 'victory';
+    const st = S.stats, won = o.result === 'victory'; A.sfx.play(won ? 'crown' : 'lose');
     const stands = A.FIDS.map((f) => `<div class="kv"><span>${chip(f)} ${A.F(S, f).alive ? '' : '<small>fallen</small>'}</span><b>${A.provsOf(S, f).length} provinces</b></div>`).join('');
     const story = S.log.filter((l) => l.k === 'event').slice(-10).map((l) => `<div><small>${A.dateStr(S, l.t)}</small> ${esc(l.text)}</div>`).join('');
     const ans = await ask(`<div class="sub2">${A.dateStr(S)} · ${A.DIFF[S.difficulty].name} · seed ${S.seed0}</div><h2 class="${won ? 'pos' : 'neg'}">${won ? '♛ Victory — ' + (o.kind === 'unification' ? 'Asterra United' : 'A Recognized Succession') : '✖ Defeat'}</h2><p>${esc(o.text)}</p>
@@ -585,6 +631,7 @@
     if (ui.screen === 'new') return renderNew();
     const side = $('.panel'), keep = side ? side.scrollTop : 0, keepTab = side ? side.dataset.tab : null;
     $('#app').innerHTML = `<div class="game ${ui.busy ? 'busy' : ''}">${renderTop()}<div class="mapwrap">${modeBanner()}${mapSVG()}${legend()}</div>${renderSide()}${renderLog()}</div>`;
+    ui.flash = null;
     const np = $('.panel'); np.dataset.tab = ui.tab + ':' + ui.sel + ':' + ui.dip.target; if (keepTab === np.dataset.tab) np.scrollTop = keep;
     const lg = $('#log'); lg.scrollTop = lg.scrollHeight;
   }
@@ -593,6 +640,7 @@
   document.addEventListener('click', (e) => {
     const el = e.target.closest('[data-a]'); if (!el || el.disabled) return;
     const fn = H[el.dataset.a]; if (!fn) return;
+    if (/^(tab|prov|nextProv|ans|armySel|dipSel|newScreen|title|pickHouse|pickDiff|menu|saves|guide|march)$/.test(el.dataset.a)) A.sfx.play('click');
     if (ui.busy && !el.closest('#modal') && !el.closest('#battle')) return;
     Promise.resolve().then(() => fn(el.dataset, el, e)).catch((err) => { console.error(err); ui.busy = false; toast('Something went wrong: ' + err.message); try { render(); } catch (e2) { /* ignore */ } });
   });

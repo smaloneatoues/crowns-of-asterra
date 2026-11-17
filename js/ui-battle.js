@@ -2,16 +2,61 @@
 (function () {
   const A = globalThis.A, B = A.battle, H = A.uiH, esc = A.esc;
   const $ = (q) => document.querySelector(q);
-  const bu = (A.battleUI = { b: null, side: null, sel: null, resolve: null, mark: 0, confirmRetreat: false });
+  const bu = (A.battleUI = { b: null, side: null, sel: null, resolve: null, mark: 0, confirmRetreat: false, view: [], anim: false, skip: false, skipAll: false, watch: false });
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const snap = (b) => b.units.map((u) => ({ ...u }));
+  const DUR = { move: 240, melee: 520, volley: 520, hold: 150, batter: 480, breach: 800, rout: 520, star: 1300 };
 
-  bu.play = function (b, side) {
+  // opt.watch: the player's officer fights the battle while the player looks on.
+  bu.play = function (b, side, opt) {
     return new Promise((res) => {
-      Object.assign(bu, { b, side, sel: null, resolve: res, mark: 0, confirmRetreat: false });
-      $('#battle').hidden = false;
-      if (b.turn !== side) { bu.mark = b.log.length; B.aiTurn(b); }
+      Object.assign(bu, { b, side, sel: null, resolve: res, mark: 0, confirmRetreat: false, anim: false, skip: false, skipAll: false, rang: false, watch: !!(opt && opt.watch) });
+      b.fxOn = true; b.fx = []; bu.view = snap(b);
+      $('#battle').hidden = false; A.sfx.setMode('battle'); A.sfx.play('horn');
       draw();
+      if (bu.watch) runWatch();
+      else if (b.turn !== side) { bu.mark = b.log.length; B.aiTurn(b); flush(); }
     });
   };
+
+  // Play the queued battle events one at a time, moving the on-screen units from where they were to where they are.
+  function apply(ev) {
+    const v = bu.view, hit = (id, dmg, dm) => { const u = v[id]; u.men = Math.max(0, u.men - dmg); if (dm !== undefined) u.morale = dm; };
+    if (ev.t === 'move') { v[ev.id].x = ev.x; v[ev.id].y = ev.y; v[ev.id].hold = false; }
+    else if (ev.t === 'melee') { hit(ev.d, ev.dmg, ev.dm); hit(ev.a, ev.ctr, ev.am); v[ev.a].hold = false; }
+    else if (ev.t === 'volley') hit(ev.d, ev.dmg, ev.dm);
+    else if (ev.t === 'hold') v[ev.id].hold = true;
+    else if (ev.t === 'rout') v[ev.id].routed = true;
+    else if (ev.t === 'star') for (const h of ev.hit) hit(h.id, h.dmg, h.dm);
+  }
+  function sound(ev) {
+    const v = bu.view;
+    if (ev.t === 'move') A.sfx.play(v[ev.id].cls === 'cav' ? 'gallop' : 'step', 90);
+    else if (ev.t === 'melee') A.sfx.play(ev.charge ? 'charge' : 'clash');
+    else if (ev.t === 'volley') A.sfx.play(ev.song ? 'song' : ev.cls === 'sie' ? 'stone' : 'arrow');
+    else if (ev.t === 'batter') A.sfx.play('stone');
+    else A.sfx.play({ hold: 'hold', breach: 'breach', rout: 'rout', star: 'star' }[ev.t]);
+  }
+  async function flush() {
+    const b = bu.b; if (!b || bu.anim) return;
+    bu.anim = true;
+    while (b.fx.length) {
+      const ev = b.fx.shift(); apply(ev);
+      if (bu.skip || bu.skipAll) continue;
+      draw(ev); sound(ev);
+      await sleep(DUR[ev.t] || 300);
+      if (bu.b !== b) return;
+    }
+    bu.anim = false; bu.skip = false; bu.view = snap(b);
+    const u = selUnit(); if (!u || u.acted || u.routed || b.over) bu.sel = null;
+    draw();
+    if (b.over && !bu.rang) { bu.rang = true; A.sfx.play(b.winner === bu.side ? 'win' : 'lose'); }
+  }
+  async function runWatch() {
+    const b = bu.b; bu.watch = true; bu.sel = null; let guard = 0;
+    while (bu.b === b && !b.over && guard++ < 200) { bu.mark = b.log.length; B.aiTurn(b); await flush(); if (!bu.skipAll) await sleep(120); }
+    if (bu.b === b) { if (!b.over) B.autoResolve(b); await flush(); draw(); }
+  }
   const color = (side) => A.fcolor(bu.b.spec[side].f);
   const selUnit = () => (bu.sel == null ? null : bu.b.units[bu.sel]);
   const myTurn = () => !bu.b.over && bu.b.turn === bu.side;
@@ -33,27 +78,48 @@
     return 'Out of reach this round. Move closer first.';
   }
 
-  function draw() {
-    const b = bu.b, el = $('#battle'), u = selUnit(), can = u && myTurn() && B.canAct(b, u);
+  const vAt = (x, y, ev) => bu.view.find((u) => u.x === x && u.y === y && (!u.routed || (ev && ev.t === 'rout' && ev.id === u.id)));
+  const sgn = (n) => (n > 0 ? 1 : n < 0 ? -1 : 0);
+  function draw(ev) {
+    const b = bu.b, el = $('#battle'), live = !bu.anim && !bu.watch, u = live ? selUnit() : null, can = u && myTurn() && B.canAct(b, u);
+    const V = bu.view, fxu = {}, fxt = {};
+    const mark = (id, cls, style, extra) => { const o = (fxu[id] = fxu[id] || { cls: '', style: '', extra: '' }); o.cls += ' ' + cls; o.style += style || ''; o.extra += extra || ''; };
+    const dmgTag = (n) => (n > 0 ? `<span class="dmg">−${n}</span>` : '');
+    if (ev) {
+      if (ev.t === 'move') mark(ev.id, 'fx-move', `--dx:${ev.fx - ev.x};--dy:${ev.fy - ev.y};`);
+      else if (ev.t === 'melee') { const a = V[ev.a], d = V[ev.d]; mark(ev.a, ev.charge ? 'fx-lunge fx-charge' : 'fx-lunge', `--dx:${sgn(d.x - a.x)};--dy:${sgn(d.y - a.y)};`, dmgTag(ev.ctr)); mark(ev.d, 'fx-hit', '', dmgTag(ev.dmg) + (ev.flank ? '<span class="tagfx">flank!</span>' : ev.charge ? '<span class="tagfx">charge!</span>' : '')); }
+      else if (ev.t === 'volley') { const a = V[ev.a], d = V[ev.d]; mark(ev.a, 'fx-loose', '', `<i class="shot ${ev.song ? 'song' : ev.cls === 'sie' ? 'rock' : ''}" style="--dx:${d.x - a.x};--dy:${d.y - a.y};--rot:${Math.atan2(d.y - a.y, d.x - a.x)}rad"></i>`); mark(ev.d, 'fx-hit late', '', dmgTag(ev.dmg)); }
+      else if (ev.t === 'hold') mark(ev.id, 'fx-hold');
+      else if (ev.t === 'rout') mark(ev.id, 'fx-rout', `--dx:${V[ev.id].side === 'att' ? -1 : 1};`);
+      else if (ev.t === 'batter') { mark(ev.id, 'fx-lunge', '--dx:1;--dy:0;'); fxt.wall = 'fx-wallhit'; }
+      else if (ev.t === 'breach') fxt.rubble = 'fx-breach';
+      else if (ev.t === 'star') for (const h of ev.hit) mark(h.id, 'fx-hit fx-burn', '', dmgTag(h.dmg));
+    }
     const reach = can && !u.hasMoved ? B.reach(b, u) : {};
     const tv = {}, tm = {};
     if (can) for (const e of B.live(b, bu.side === 'att' ? 'def' : 'att')) { if (B.canVolley(b, u, e)) tv[e.id] = 1; else if (B.approach(b, u, e)) tm[e.id] = 1; }
     let grid = '';
     for (let y = 0; y < B.H; y++) for (let x = 0; x < B.W; x++) {
-      const t = b.grid[y][x], w = B.unitAt(b, x, y), T = B.TILE[t];
-      let cls = 't t-' + t; if (reach[x + ',' + y] !== undefined) cls += ' reach';
+      const t = b.grid[y][x], w = vAt(x, y, ev), T = B.TILE[t];
+      let cls = 't t-' + t; if (reach[x + ',' + y] !== undefined) cls += ' reach'; if (fxt[t]) cls += ' ' + fxt[t];
       let inner = '';
       if (w) {
-        const U = A.UNITS[w.cls], mine = w.side === bu.side, ready = mine && myTurn() && B.canAct(b, w);
-        if (tv[w.id]) cls += ' tgt-v'; if (tm[w.id]) cls += ' tgt-m';
-        inner = `<div class="u ${w.side} ${bu.sel === w.id ? 'sel' : ''} ${mine && !ready && myTurn() ? 'done' : ''} ${ready ? 'ready' : ''}" style="--c:${color(w.side)}"><span class="ug">${A.art.unit(w.cls, 22)}</span><span class="ub">${w.leader ? '★' : ''}${w.hold ? '⛨' : ''}</span><span class="un">${w.men}</span><span class="um"><i style="width:${Math.round(w.morale)}%"></i></span></div>`;
+        const mine = w.side === bu.side, ready = live && mine && myTurn() && B.canAct(b, b.units[w.id]), f = fxu[w.id] || { cls: '', style: '', extra: '' };
+        if (tv[w.id]) cls += ' tgt-v'; if (tm[w.id]) cls += ' tgt-m'; if (f.cls) cls += ' top';
+        inner = `<div class="u ${w.side} ${w.champ ? 'champ' : ''} ${bu.sel === w.id ? 'sel' : ''} ${live && mine && !ready && myTurn() ? 'done' : ''} ${ready ? 'ready' : ''}${f.cls}" style="--c:${color(w.side)};${f.style}"><span class="ug">${A.art.unit(w.cls, 22)}</span><span class="ub">${w.champ ? '✪' : ''}${w.leader ? '★' : ''}${w.hold ? '⛨' : ''}</span><span class="un">${w.men}</span><span class="um"><i style="width:${Math.round(w.morale)}%"></i></span>${f.extra}</div>`;
       }
-      const tip = `${T.name}: ${T.note}${w ? `\n${A.UNITS[w.cls].name} — ${w.men}/${w.start} men, morale ${Math.round(w.morale)}${w.leader ? ', commander present' : ''}${w.hold ? ', holding' : ''}` : ''}`;
+      const wc = w && B.CO(w);
+      const tip = `${T.name}: ${T.note}${w ? `\n${wc ? wc.name + ' (free company) — ' + wc.desc + '\n' : ''}${A.UNITS[w.cls].name} — ${w.men}/${w.start} men, morale ${Math.round(w.morale)}${w.leader ? ', commander present' : ''}${w.hold ? ', holding' : ''}` : ''}`;
       grid += `<div class="${cls}" data-a="bt" data-x="${x}" data-y="${y}" title="${esc(tip)}">${inner}</div>`;
     }
-    const sideBox = (side) => { const sp = b.spec[side]; return `<div class="bside-h" style="--c:${color(side)}">${A.art.crest(sp.f, 44)}<div><b>${esc(sp.name)}</b> ${side === bu.side ? '(you)' : ''}<br><small>${side === 'att' ? 'Attacking' : 'Defending'} · ${esc(sp.cmd)} · leadership ${sp.lead} · ${b.cpMax[side]} activations/round</small><br><small>${B.men(b, side)} men standing in ${B.live(b, side).length} units</small></div></div>`; };
+    const sideBox = (side) => { const sp = b.spec[side]; return `<div class="bside-h" style="--c:${color(side)}">${A.art.crest(sp.f, 44)}<div><b>${esc(sp.name)}</b> ${side === bu.side ? '(you)' : ''}<br><small>${side === 'att' ? 'Attacking' : 'Defending'} · ${esc(sp.cmd)} · leadership ${sp.lead} · ${b.cpMax[side]} activations/round</small><br><small>${vmen(side)} men standing in ${vn(side)} units</small></div></div>`; };
     let panel = '';
-    if (b.over) {
+    const vmen = (side) => V.filter((x) => x.side === side && !x.routed).reduce((n, x) => n + x.men, 0), vn = (side) => V.filter((x) => x.side === side && !x.routed).length;
+    if (!live && !(b.over && !bu.anim)) {
+      panel = `<div class="bturn">Round <b>${b.round}</b> / ${B.MAXR}${b.fort ? ` · Wall ${b.wallHp}/${b.wallMax}` : ''} · ${bu.watch ? `${esc(b.spec[bu.side].cmd)} commands for you` : 'The battle rages…'}</div>
+        <div class="bunit note">${bu.watch ? 'Your officer is fighting this battle. Watch it unfold, or skip straight to the result.' : 'Click anywhere on the field to speed this up.'}</div>
+        <div class="row"><button class="go" data-a="bskip">${bu.watch ? 'Skip to the result ▶▶' : 'Speed up ▶▶'}</button></div>`;
+    } else if (b.over) {
       const won = b.winner === bu.side;
       panel = `<div class="bover ${won ? 'pos' : 'neg'}"><h2>${won ? '✔ The field is yours' : '✖ The day is lost'}</h2><p>${esc(b.log[b.log.length - 1])}</p><button class="go big" data-a="bdone">Continue ▶</button></div>`;
     } else {
@@ -71,18 +137,20 @@
         <button data-a="bretreat" class="${bu.confirmRetreat ? 'danger' : ''}" title="Withdraw in good order: lighter losses than a rout and your commander is safe, but the battle is lost.">${bu.confirmRetreat ? 'Confirm retreat?' : 'Retreat'}</button></div>`;
     }
     const log = b.log.map((l, i) => `<div class="${i >= bu.mark ? 'new' : ''}">${esc(l)}</div>`).join('');
-    el.innerHTML = `<div class="bwrap"><div class="bhead">${sideBox('att')}<div class="vs">⚔<br><small>${esc(A.P(A.ui.s, b.spec.pid).name)}</small></div>${sideBox('def')}</div>
+    el.innerHTML = `<div class="bwrap ${ev && ev.t === 'star' ? 'fx-star' : ''} ${ev && ev.t === 'breach' ? 'fx-quake' : ''}"><div class="bhead">${sideBox('att')}<div class="vs">⚔<br><small>${esc(A.P(A.ui.s, b.spec.pid).name)}</small></div>${sideBox('def')}</div>
       <div class="bmain"><div class="bgrid">${grid}</div><div class="bpanel">${panel}<div class="blog" id="blogb">${log}</div></div></div>
-      <div class="bkey">${A.CLS.map((c) => A.art.unit(c, 15) + ' ' + A.UNITS[c].name.toLowerCase()).join(' · ')} · ★ commander · ⛨ holding · bar = morale · <span class="k-reach">■</span> can move · <span class="k-m">■</span> can attack · <span class="k-v">■</span> can volley</div></div>`;
+      <div class="bkey">${A.CLS.map((c) => A.art.unit(c, 15) + ' ' + A.UNITS[c].name.toLowerCase()).join(' · ')} · ✪ free company · ★ commander · ⛨ holding · bar = morale · <span class="k-reach">■</span> can move · <span class="k-m">■</span> can attack · <span class="k-v">■</span> can volley</div></div>`;
     const lg = $('#blogb'); if (lg) lg.scrollTop = lg.scrollHeight;
   }
 
-  function after() { const u = selUnit(); if (!u || u.acted || u.routed || bu.b.over) bu.sel = null; bu.confirmRetreat = false; draw(); }
+  function after() { bu.confirmRetreat = false; flush(); }
+  const locked = () => { if (bu.anim || bu.watch) { if (bu.anim && !bu.watch) bu.skip = true; return true; } return false; };
+  H.bskip = () => { if (bu.watch) bu.skipAll = true; else bu.skip = true; };
   H.bt = (d) => {
-    const b = bu.b; if (!b || !myTurn()) return;
+    const b = bu.b; if (!b || locked() || !myTurn()) return;
     const x = +d.x, y = +d.y, w = B.unitAt(b, x, y), u = selUnit();
     if (w && w.side === bu.side) { if (B.canAct(b, w)) bu.sel = w.id; else A.toast(cannotAct(w)); return draw(); }
-    if (!u || !B.canAct(b, u)) { A.toast('Select one of your units first.'); return; }
+    if (!u || !B.canAct(b, u)) { A.toast('Select one of your units first.'); A.sfx.play('deny'); return; }
     if (w) {
       if (B.canVolley(b, u, w)) { B.volley(b, u, w); return after(); }
       const ap = B.approach(b, u, w);
@@ -93,17 +161,17 @@
     if (!B.move(b, u, x, y)) { A.toast(b.grid[y][x] === 'wall' && B.wallUp(b) && u.side === 'att' ? 'The wall is still standing; you cannot cross it.' : `Too far. ${A.UNITS[u.cls].name} move ${A.UNITS[u.cls].move}; forest, hills, marsh and rubble cost double.`); return; }
     after();
   };
-  H.bhold = () => { const u = selUnit(); if (u && B.hold(bu.b, u)) after(); };
-  H.bbatter = () => { const u = selUnit(); if (u && B.batter(bu.b, u)) after(); };
-  H.bend = () => { const b = bu.b; if (!myTurn()) return; bu.mark = b.log.length; B.endTurn(b); if (!b.over) B.aiTurn(b); bu.sel = null; bu.confirmRetreat = false; draw(); };
-  H.bauto = () => { const b = bu.b; if (!myTurn()) return; bu.mark = b.log.length; B.aiTurn(b, { noRetreat: true }); if (!b.over) B.aiTurn(b); bu.sel = null; draw(); };
-  H.bfinish = () => { const b = bu.b; if (b.over) return; bu.mark = b.log.length; B.autoResolve(b); bu.sel = null; draw(); };
-  H.bstar = () => { if (myTurn() && B.starfall(bu.b, bu.side)) { bu.sel = null; draw(); } };
-  H.bretreat = () => { if (bu.b.over) return; if (!bu.confirmRetreat) { bu.confirmRetreat = true; return draw(); } B.retreat(bu.b, bu.side); draw(); };
-  H.bdone = () => { const r = bu.resolve; bu.resolve = null; $('#battle').hidden = true; $('#battle').innerHTML = ''; if (r) r(); };
+  H.bhold = () => { const u = selUnit(); if (!locked() && u && B.hold(bu.b, u)) after(); };
+  H.bbatter = () => { const u = selUnit(); if (!locked() && u && B.batter(bu.b, u)) after(); };
+  H.bend = () => { const b = bu.b; if (locked() || !myTurn()) return; bu.mark = b.log.length; B.endTurn(b); if (!b.over) B.aiTurn(b); bu.sel = null; bu.confirmRetreat = false; flush(); };
+  H.bauto = () => { const b = bu.b; if (locked() || !myTurn()) return; bu.mark = b.log.length; B.aiTurn(b, { noRetreat: true }); if (!b.over) B.aiTurn(b); bu.sel = null; flush(); };
+  H.bfinish = () => { const b = bu.b; if (b.over || locked()) return; if (b.turn !== bu.side) return; runWatch(); };
+  H.bstar = () => { if (!locked() && myTurn() && B.starfall(bu.b, bu.side)) { bu.sel = null; flush(); } };
+  H.bretreat = () => { if (bu.b.over || locked()) return; if (!bu.confirmRetreat) { bu.confirmRetreat = true; return draw(); } B.retreat(bu.b, bu.side); flush(); };
+  H.bdone = () => { const r = bu.resolve; bu.resolve = null; bu.b.fxOn = false; bu.b.fx = []; bu.b = null; bu.rang = false; A.sfx.setMode('map'); $('#battle').hidden = true; $('#battle').innerHTML = ''; if (r) r(); };
 
   document.addEventListener('mouseover', (e) => {
-    const b = bu.b, box = $('#bfc'); if (!b || !box || b.over) return;
+    const b = bu.b, box = $('#bfc'); if (!b || !box || b.over || bu.anim || bu.watch) return;
     const el = e.target.closest('.t'); if (!el) return;
     const u = selUnit(), w = B.unitAt(b, +el.dataset.x, +el.dataset.y);
     if (!u || !w || w.side === bu.side || !myTurn() || !B.canAct(b, u)) { box.innerHTML = ''; return; }

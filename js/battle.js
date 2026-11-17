@@ -17,10 +17,14 @@
   const B = (A.battle = { W, H, WALLX, MAXR, TILE, MATCH });
   const other = (side) => (side === 'att' ? 'def' : 'att');
   const rnd = (b) => A.rng.next(b);
+  const CO = (u) => (u && u.champ ? A.COMPANIES[u.champ] : null);
+  const breaks = (u) => u.morale <= 10 && !(CO(u) && CO(u).steady);
+  // Animation events for the battle screen. Only recorded when a screen is watching (b.fxOn).
+  const fx = (b, ev) => { if (b.fxOn) b.fx.push(ev); return ev; };
 
   B.create = function (spec) {
     const b = { W, H, seed: spec.seed >>> 0, spec, grid: [], units: [], round: 1, turn: 'att', lead: { att: spec.att.lead, def: spec.def.lead }, cpMax: {}, cpLeft: 0,
-      fort: spec.fort || 0, wallHp: 0, wallMax: 0, over: false, winner: null, reason: '', log: [], beastUsed: { att: false, def: false }, retreated: null, start: { att: { ...spec.att.troops }, def: { ...spec.def.troops } } };
+      fx: [], fxOn: false, fort: spec.fort || 0, wallHp: 0, wallMax: 0, over: false, winner: null, reason: '', log: [], beastUsed: { att: false, def: false }, retreated: null, start: { att: { ...spec.att.troops }, def: { ...spec.def.troops } } };
     const siege = b.fort > 0;
     b.wallMax = b.wallHp = b.fort * 50;
     const mix = (A.TERRAIN[spec.terrain] || A.TERRAIN.plains).mix;
@@ -34,8 +38,8 @@
       }
       b.grid.push(row);
     }
-    deploy(b, 'att', spec.att.troops, spec.att.morale || 0, siege);
-    deploy(b, 'def', spec.def.troops, spec.def.morale || 0, siege);
+    deploy(b, 'att', spec.att.troops, spec.att.morale || 0, siege, spec.att.champ);
+    deploy(b, 'def', spec.def.troops, spec.def.morale || 0, siege, spec.def.champ);
     for (const side of ['att', 'def']) {
       b.cpMax[side] = A.clamp(2 + Math.floor(b.lead[side] / 30), 2, 5);
       const mine = b.units.filter((u) => u.side === side).sort((a, c) => (c.cls === 'inf') - (a.cls === 'inf') || c.men - a.men);
@@ -46,19 +50,20 @@
     return b;
   };
 
-  function deploy(b, side, troops, moraleMod, siege) {
+  function deploy(b, side, troops, moraleMod, siege, champ) {
     const list = [];
     for (const c of A.CLS) { const n = troops[c] || 0; if (n <= 0) continue; if (c === 'inf' && n > 600) { list.push([c, Math.ceil(n / 2)]); list.push([c, Math.floor(n / 2)]); } else list.push([c, n]); }
     const morale = A.clamp(Math.round(50 + b.lead[side] * 0.3 + moraleMod), 25, 100);
     const rows = [2, 1, 3, 0, 4];
-    const place = (cls, men, x, dir) => {
-      for (let k = 0; k < 3; k++) { const cx = x + dir * k; for (const y of rows) if (!B.unitAt(b, cx, y)) { b.units.push({ id: b.units.length, side, cls, men, start: men, morale, x: cx, y, spent: false, hasMoved: false, acted: false, hold: false, routed: false, leader: false, moved: 0 }); return; } }
+    const place = (cls, men, x, dir, co) => {
+      for (let k = 0; k < 3; k++) { const cx = x + dir * k; for (const y of rows) if (!B.unitAt(b, cx, y)) { b.units.push({ id: b.units.length, side, cls, men, start: men, morale: co ? Math.min(100, morale + 12) : morale, x: cx, y, spent: false, hasMoved: false, acted: false, hold: false, routed: false, leader: false, moved: 0, champ: co || null }); return; } }
     };
-    for (const [cls, men] of list) {
+    if (champ && champ.men > 0 && A.COMPANIES[champ.id]) list.push([A.COMPANIES[champ.id].base, champ.men, champ.id]);
+    for (const [cls, men, co] of list) {
       const front = cls === 'inf' || cls === 'cav';
-      if (side === 'att') place(cls, men, front ? 1 : 0, -1);
-      else if (siege) place(cls, men, cls === 'inf' || cls === 'arc' ? WALLX : 8, 1);
-      else place(cls, men, front ? 8 : 9, 1);
+      if (side === 'att') place(cls, men, front ? 1 : 0, -1, co);
+      else if (siege) place(cls, men, cls === 'inf' || cls === 'arc' ? WALLX : 8, 1, co);
+      else place(cls, men, front ? 8 : 9, 1, co);
     }
   }
 
@@ -67,7 +72,8 @@
   B.men = (b, side) => B.live(b, side).reduce((n, u) => n + u.men, 0);
   B.dist = (a, c) => Math.max(Math.abs(a.x - c.x), Math.abs(a.y - c.y));
   B.wallUp = (b) => b.wallHp > 0;
-  B.uname = (b, u) => `${u.side === 'att' ? 'Attacking' : 'Defending'} ${A.UNITS[u.cls].name.toLowerCase()}`;
+  B.uname = (b, u) => (CO(u) ? CO(u).name : `${u.side === 'att' ? 'Attacking' : 'Defending'} ${A.UNITS[u.cls].name.toLowerCase()}`);
+  B.CO = CO;
 
   function stepCost(b, u, x, y) {
     const t = b.grid[y][x];
@@ -93,7 +99,7 @@
     }
     return out;
   };
-  B.range = function (b, u) { const U = A.UNITS[u.cls]; if (!U.range) return 0; const t = b.grid[u.y][u.x]; return U.range + (u.cls === 'arc' && (t === 'hill' || t === 'wall') ? 1 : 0); };
+  B.range = function (b, u) { const U = A.UNITS[u.cls]; if (!U.range) return 0; const t = b.grid[u.y][u.x]; return U.range + (u.cls === 'arc' && (t === 'hill' || t === 'wall') ? 1 : 0) + ((CO(u) && CO(u).reach) || 0); };
   B.canVolley = function (b, u, t) { const r = B.range(b, u), d = B.dist(u, t); return r > 0 && u.side !== t.side && !t.routed && d >= 2 && d <= r; };
   B.canMelee = function (b, u, t) {
     if (u.side === t.side || t.routed || B.dist(u, t) !== 1) return false;
@@ -105,13 +111,14 @@
     if (u.cls === 'sie') return WALLX - u.x <= 4;
     return (u.cls === 'inf' || u.cls === 'cav') && u.x === WALLX - 1;
   };
-  B.batterDmg = (u) => Math.round(u.men * (u.cls === 'sie' ? 0.4 : u.cls === 'inf' ? 0.03 : 0.01));
+  B.batterDmg = (u) => Math.round(u.men * (u.cls === 'sie' ? 0.4 : u.cls === 'inf' ? 0.03 : 0.01) * ((CO(u) && CO(u).batter) || 1));
 
   // Expected damage (before the ±15% roll) with the reasons, so the UI can explain every number.
   B.calc = function (b, u, t, mode, moved) {
     if (moved === undefined) moved = u.moved || 0;
-    const U = A.UNITS[u.cls], notes = [];
-    let m = u.men * (mode === 'volley' ? U.ranged : U.power) * 0.11;
+    const U = A.UNITS[u.cls], notes = [], C = CO(u) || {}, TC = CO(t) || {};
+    let m = u.men * (mode === 'volley' ? U.ranged * (C.rng || 1) : U.power * (C.pow || 1)) * 0.11;
+    if (C.name) notes.push(C.name);
     m *= 0.8 + b.lead[u.side] / 250;
     m *= 0.6 + u.morale / 200;
     const mm = MATCH[mode][u.cls][t.cls]; if (mm !== 1) notes.push(`${U.name} vs ${A.UNITS[t.cls].name.toLowerCase()} ×${mm}`);
@@ -120,22 +127,24 @@
     let tm = 1;
     if (tt === 'forest') tm = mode === 'volley' ? 0.6 : 0.75; else if (tt === 'hill') tm = 0.8; else if (tt === 'marsh') tm = 1.1; else if (tt === 'rubble') tm = 0.9;
     else if (tt === 'wall' && B.wallUp(b) && t.side === 'def') tm = 1 - Math.min(0.6, 0.15 * b.fort);
+    if (C.pierce && mode === 'volley' && tm < 1) { tm = 1; notes.push('Their song ignores walls and cover'); }
     if (tm !== 1) notes.push(`Target on ${TILE[tt].name.toLowerCase()} ×${tm.toFixed(2)}`);
     m *= tm;
     if (mode === 'melee' && u.cls === 'cav' && (ut === 'forest' || ut === 'marsh')) { m *= 0.7; notes.push('Cavalry in rough ground ×0.7'); }
     if (mode === 'volley' && u.cls === 'arc' && (ut === 'hill' || ut === 'wall')) { m *= 1.15; notes.push('High ground ×1.15'); }
-    if (t.hold) { const hm = t.cls === 'inf' ? (u.cls === 'cav' && mode === 'melee' ? 0.5 : 0.7) : 0.85; m *= hm; notes.push(`Target holding ×${hm}`); }
+    if (TC.armor) { m *= TC.armor; notes.push(`${TC.name} armour ×${TC.armor}`); }
+    if (t.hold) { const hm = t.cls === 'inf' ? (u.cls === 'cav' && mode === 'melee' && !C.noBrace ? 0.5 : 0.7) : 0.85; m *= hm; notes.push(`Target holding ×${hm}`); }
     let charge = false, flank = false;
     if (mode === 'melee' && u.cls === 'cav' && moved >= 2 && ut !== 'forest' && ut !== 'marsh') { m *= 1.4; charge = true; notes.push('Charge ×1.4'); }
     const escalade = mode === 'melee' && tt === 'wall' && B.wallUp(b) && t.side === 'def';
     if (escalade) { m *= 0.6; notes.push('Escalade up ladders ×0.6'); }
     if (mode === 'melee' && !escalade && b.units.some((x) => x !== u && x.side === u.side && !x.routed && (x.cls === 'inf' || x.cls === 'cav') && B.dist(x, t) === 1)) { m *= 1.25; flank = true; notes.push('Flank ×1.25'); }
-    if (mode === 'volley' && moved > 0) { m *= 0.75; notes.push('Moved before loosing ×0.75'); }
+    if (mode === 'volley' && moved > 0 && !C.mobile) { m *= 0.75; notes.push('Moved before loosing ×0.75'); }
     let counter = 0;
     if (mode === 'melee') {
       const T = A.UNITS[t.cls];
-      counter = t.men * T.power * 0.11 * 0.6 * (0.8 + b.lead[t.side] / 250) * (0.6 + t.morale / 200) * MATCH.melee[t.cls][u.cls];
-      if (t.hold && t.cls === 'inf' && u.cls === 'cav') { counter *= 1.5; notes.push('Braced spears: counter ×1.5'); }
+      counter = t.men * T.power * (TC.pow || 1) * (C.armor || 1) * 0.11 * 0.6 * (0.8 + b.lead[t.side] / 250) * (0.6 + t.morale / 200) * MATCH.melee[t.cls][u.cls];
+      if (t.hold && t.cls === 'inf' && u.cls === 'cav' && !C.noBrace) { counter *= 1.5; notes.push('Braced spears: counter ×1.5'); }
       if (escalade) { counter *= 1.3; notes.push('Defenders strike down from the wall: counter ×1.3'); }
       if (ut === 'forest') counter *= 0.75; else if (ut === 'hill') counter *= 0.8;
     }
@@ -147,14 +156,14 @@
     dmg = Math.min(t.men, Math.max(0, Math.round(dmg)));
     t.men -= dmg;
     t.morale = Math.max(0, t.morale - (dmg / t.start) * 130 - (flank ? 6 : 0));
-    if (!t.routed && (t.men <= t.start * 0.12 || t.morale <= 10)) rout(b, t);
+    if (!t.routed && (t.men <= t.start * 0.12 || breaks(t))) rout(b, t);
     return dmg;
   }
   function rout(b, t) {
-    t.routed = true; t.morale = 0;
+    t.routed = true; t.morale = 0; fx(b, { t: 'rout', id: t.id });
     say(b, `✖ ${B.uname(b, t)} break and flee${t.leader ? ' — their commander is swept away with them!' : '.'}`);
     for (const m of B.live(b, t.side)) { m.morale = Math.max(0, m.morale - (t.leader ? 18 : 8)); }
-    for (const m of B.live(b, t.side)) if (m.morale <= 10) rout(b, m);
+    for (const m of B.live(b, t.side)) if (breaks(m)) rout(b, m);
     for (const side of ['att', 'def']) if (!b.over && !B.live(b, side).length) finish(b, other(side), 'rout');
   }
   function finish(b, winner, reason) {
@@ -169,7 +178,7 @@
   B.move = function (b, u, x, y) {
     if (!B.canAct(b, u) || u.hasMoved) return false;
     if (B.reach(b, u)[x + ',' + y] === undefined) return false;
-    pay(b, u); u.moved = Math.max(Math.abs(x - u.x), Math.abs(y - u.y)); u.x = x; u.y = y; u.hasMoved = true; u.hold = false;
+    pay(b, u); u.moved = Math.max(Math.abs(x - u.x), Math.abs(y - u.y)); fx(b, { t: 'move', id: u.id, fx: u.x, fy: u.y, x, y }); u.x = x; u.y = y; u.hasMoved = true; u.hold = false;
     return true;
   };
   B.attack = function (b, u, t) {
@@ -181,8 +190,10 @@
     const d1 = Math.min(t.men, Math.max(0, dmg)), d2 = Math.min(u.men, Math.max(0, ctr));
     say(b, `${B.uname(b, u)} ${f.charge ? 'CHARGE' : 'attack'} ${B.uname(b, t).toLowerCase()}${f.flank ? ' in the flank' : ''}: ${d1} fall, ${d2} lost in return.`);
     u.morale = Math.min(100, u.morale + 3);
+    const ev = fx(b, { t: 'melee', a: u.id, d: t.id, dmg: d1, ctr: d2, charge: f.charge, flank: f.flank });
     hurt(b, t, dmg, f.flank);
     hurt(b, u, ctr, false);
+    ev.dm = t.morale; ev.am = u.morale;
     return true;
   };
   B.volley = function (b, u, t) {
@@ -191,20 +202,24 @@
     const f = B.calc(b, u, t, 'volley'), dmg = Math.round(f.dmg * (0.85 + rnd(b) * 0.3));
     u.acted = true; u.hold = false;
     say(b, `${B.uname(b, u)} loose a volley at ${B.uname(b, t).toLowerCase()}: ${Math.min(t.men, Math.max(0, dmg))} fall.`);
+    const ev = fx(b, { t: 'volley', a: u.id, d: t.id, dmg: Math.min(t.men, Math.max(0, dmg)), cls: u.cls, song: !!(CO(u) && CO(u).dread) });
     hurt(b, t, dmg, false);
+    const C = CO(u);
+    if (C && C.dread && !t.routed) { t.morale = Math.max(0, t.morale - C.dread); if (breaks(t)) rout(b, t); }
+    ev.dm = t.morale;
     return true;
   };
   B.hold = function (b, u) {
     if (!B.canAct(b, u)) return false;
-    pay(b, u); u.acted = true; u.hold = true; u.morale = Math.min(100, u.morale + 5);
+    pay(b, u); u.acted = true; u.hold = true; u.morale = Math.min(100, u.morale + 5); fx(b, { t: 'hold', id: u.id });
     return true;
   };
   B.batter = function (b, u) {
     if (!B.canAct(b, u) || !B.canBatter(b, u)) return false;
     pay(b, u); u.acted = true; u.hold = false;
-    const d = B.batterDmg(u); b.wallHp = Math.max(0, b.wallHp - d);
+    const d = B.batterDmg(u); b.wallHp = Math.max(0, b.wallHp - d); fx(b, { t: 'batter', id: u.id, dmg: d, hp: b.wallHp });
     say(b, `${B.uname(b, u)} batter the wall for ${d} (${b.wallHp}/${b.wallMax} left).`);
-    if (b.wallHp <= 0) { for (let y = 0; y < H; y++) b.grid[y][WALLX] = 'rubble'; say(b, '▦ The wall is breached!'); for (const m of B.live(b, 'def')) m.morale = Math.max(11, m.morale - 8); }
+    if (b.wallHp <= 0) { for (let y = 0; y < H; y++) b.grid[y][WALLX] = 'rubble'; say(b, '▦ The wall is breached!'); fx(b, { t: 'breach' }); for (const m of B.live(b, 'def')) m.morale = Math.max(11, m.morale - 8); }
     return true;
   };
   // The Starwyrm: once per battle per side. Halved if the victim's house holds any seal (a ward).
@@ -214,8 +229,10 @@
     b.beastUsed[side] = true;
     const k = sp.halved ? 0.5 : 1;
     say(b, `☄ ${A.BEAST} descends for ${b.spec[side].name}! Starfire rakes the enemy${sp.halved ? ', blunted by their seal-ward' : ''}.`);
-    for (const t of B.live(b, other(side))) { t.men -= Math.round(t.men * 0.1 * k); t.morale = Math.max(0, t.morale - 22 * k); }
-    for (const t of B.live(b, other(side))) if (t.morale <= 10) rout(b, t);
+    const hit = [];
+    for (const t of B.live(b, other(side))) { const lost = Math.round(t.men * 0.1 * k); t.men -= lost; t.morale = Math.max(0, t.morale - 22 * k); hit.push({ id: t.id, dmg: lost, dm: t.morale }); }
+    fx(b, { t: 'star', side, hit });
+    for (const t of B.live(b, other(side))) if (breaks(t)) rout(b, t);
     return true;
   };
   B.retreat = function (b, side) { if (b.over) return false; b.retreated = side; finish(b, other(side), 'retreat'); return true; };
@@ -309,10 +326,12 @@
   };
   B.autoResolve = function (b) { let guard = 0; while (!b.over && guard++ < 200) B.aiTurn(b); if (!b.over) finish(b, 'def', 'timeout'); };
 
-  B.left = function (b, side) { const t = A.noTroops(); for (const u of b.units) if (u.side === side) t[u.cls] += u.routed ? Math.floor(u.men * 0.5) : u.men; return t; };
+  B.left = function (b, side) { const t = A.noTroops(); for (const u of b.units) if (u.side === side && !u.champ) t[u.cls] += u.routed ? Math.floor(u.men * 0.5) : u.men; return t; };
+  // Survivors of a side's free company (null if it brought none).
+  B.champLeft = function (b, side) { const u = b.units.find((x) => x.side === side && x.champ); return u ? { id: u.champ, men: u.routed ? Math.floor(u.men * 0.5) : u.men } : null; };
   B.result = function (b) {
     const r = { winner: b.winner, reason: b.reason, rounds: Math.min(b.round, MAXR), retreated: b.retreated, beastUsed: { ...b.beastUsed }, breached: b.fort > 0 && b.wallHp <= 0 };
-    for (const side of ['att', 'def']) { const left = B.left(b, side), start = b.start[side]; r[side] = { start: { ...start }, left, lost: A.total(start) - A.total(left) }; }
+    for (const side of ['att', 'def']) { const left = B.left(b, side), start = b.start[side]; r[side] = { start: { ...start }, left, lost: A.total(start) - A.total(left), champ: B.champLeft(b, side) }; }
     return r;
   };
 })();

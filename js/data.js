@@ -7,6 +7,8 @@
   A.WIN_PROVINCES = 18;
   A.RECOG_SEASONS = 8;
   A.RECOG_PROVINCES = 10;
+  // Seasons before a conquered province will carry out commands (it still pays taxes): taken from a house / from the free folk.
+  A.SETTLE_HOUSE = 2; A.SETTLE_FREE = 1;
 
   // Unit classes. cost = gold per recruited batch; gold/food = upkeep per 100 men per season.
   A.UNITS = {

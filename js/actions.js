@@ -12,7 +12,7 @@
     FOOD_SEASON: [0.5, 0.9, 1.6, 0.1],
     provGold(s, p) {
       if (!p.owner) return 0;
-      let g = p.pros * 0.8 * (1 - p.unrest / 150) * (1 + A.govAdmin(s, p) / 250);
+      let g = p.pros * 0.8 * (1 - p.unrest / 150) * (1 + A.govAdmin(s, p) / 250) * A.econ.strain(s, p.owner);
       if (p.resource === 'trade') g += 15;
       if (!A.isMe(s, p.owner)) g *= A.DIFF[s.difficulty].aiIncome;
       return Math.round(g);
@@ -23,6 +23,8 @@
       if (p.resource === 'grain') f *= 1.5;
       return Math.round(f);
     },
+    // A sprawling realm is harder to tax: every province beyond the twelfth costs 2% of all gold income (at most 12%).
+    strain(s, f) { const n = A.provsOf(s, f).length; return n > 12 ? Math.max(0.88, 1 - 0.02 * (n - 12)) : 1; },
     troops(s, f) {
       const t = A.noTroops();
       for (const p of A.provsOf(s, f)) A.addTroops(t, p.garrison);
@@ -38,6 +40,7 @@
       for (const c of A.CLS) { upGold += (t[c] / 100) * A.UNITS[c].gold; upFood += (t[c] / 100) * A.UNITS[c].food; }
       if (season === 3) upFood *= 1.5;
       upGold = Math.round(upGold); upFood = Math.round(upFood);
+      const co = A.champ && A.champ.of(s, f); if (co) upGold += co.D.fee;
       return { gold, food, upGold, upFood, netGold: gold - upGold, netFood: food - upFood, troops: t };
     },
     // Food balance over a whole year, used by the AI and the realm panel.
@@ -82,11 +85,13 @@
     const act = acts[id]; if (!act || !act.cost) return { p: null };
     if (act.scope === 'prov') {
       const p = A.P(s, args.p); if (!p || p.owner !== f) return { p: null };
+      if ((p.settle || 0) > s.turn) return { why: `${p.name} was conquered recently and will not follow commands for ${p.settle - s.turn} more season${p.settle - s.turn > 1 ? 's' : ''}. It still pays its taxes.` };
       return p.acted ? { why: `${p.name} has already carried out its command this season. Each province acts once.` } : { p };
     }
+    if (!A.F(s, f).courtUsed) return { court: true }; // the ruler's own court handles one piece of business a season
     if (args.from) { const p = A.P(s, args.from); if (p && p.owner === f && !p.acted) return { p }; }
     const free = A.provsOf(s, f).filter((p) => !p.acted).sort((a, b) => a.pros - b.pros)[0];
-    return free ? { p: free } : { why: 'Every one of your provinces has already acted this season. End the season to command them again.' };
+    return free ? { p: free } : { why: 'Your court has done its business and every province has acted this season. End the season to command them again.' };
   };
   A.can = function (s, f, id, args) {
     if (s.over) return 'The campaign is over.';
@@ -102,6 +107,7 @@
     if (why) return { ok: false, reason: why };
     const act = acts[id], fac = A.F(s, f), cp = A.commandProv(s, f, id, args || {});
     let msg = act.run(s, f, args || {}, fac);
+    if (cp.court) fac.courtUsed = true;
     if (cp.p) { cp.p.acted = true; if (act.scope !== 'prov' && msg) msg += ` (${cp.p.name}'s command)`; }
     if (msg && A.isMe(s, f)) A.log(s, msg, 'me');
     return { ok: true, msg };

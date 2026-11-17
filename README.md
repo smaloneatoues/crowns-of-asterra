@@ -65,3 +65,13 @@ node test/battles.js
 ```
 
 Prints win rates for reference match-ups (cavalry vs archers, walls with and without siege crews, the Starwyrm with and without a seal-ward).
+
+## Added in the "champions, tricks and spectacle" update
+
+- **Court command.** Besides one command per province, your court handles one piece of court business (envoy, reward, heir, market, plot, the rite) each season for free. Further court business uses a province's command.
+- **Free companies** (`js/intrigue.js`). Five one-of-a-kind elite units for hire (Realm tab). A house keeps at most one; it costs gold up front and a fee each season, fights as an extra unit wherever it stands, and can join an army in the same province.
+- **Dirty tricks** (`js/intrigue.js`). From a rival province that borders your land: raid, sabotage, incite unrest, or bribe an officer. The chance and what feeds it are shown before you commit; being traced costs relations and a failed agent may be captured. Rival houses with low honour do the same to you.
+- **Pacing.** Conquered land will not follow commands for `A.SETTLE_HOUSE` seasons (`A.SETTLE_FREE` for free land). Past 12 provinces every extra province costs 2% of gold income (max 12%), and once a house holds 12 the other courts cool toward it and draw together.
+- **Battle animation and sound** (`js/ui-battle.js`, `js/sfx.js`). Moves, charges, volleys, wall hits, routs and Starfall are animated one at a time; click the field to speed up. Delegated battles can be watched or skipped. All sound and music is synthesised in the browser (no audio files) and can be switched off from the top bar.
+- **`serve.py`** serves the folder without browser caching: `python3 serve.py` then open http://localhost:8765.
+- **`node test/pace.js`** reports how fast houses fall and how large the leader grows in AI-only campaigns.

@@ -38,14 +38,14 @@
     if (A.isMe(s, g)) {
       if (type === 'gift') { A.do(s, f, 'envoy', a); return true; }
       if (s.inbox.some((it) => it.from === f)) return false;
-      s.inbox.push({ from: f, type, args: args || {}, envoy: envoy.id }); envoy.busy = true; const cp = A.commandProv(s, f, 'envoy', a); if (cp.p) cp.p.acted = true; return true;
+      s.inbox.push({ from: f, type, args: args || {}, envoy: envoy.id }); envoy.busy = true; const cp = A.commandProv(s, f, 'envoy', a); if (cp.court) A.F(s, f).courtUsed = true; else if (cp.p) cp.p.acted = true; return true;
     }
     return A.do(s, f, 'envoy', a).ok;
   }
 
   function diplomacy(s, f) {
     const fac = A.F(s, f), D = A.FDEF[f];
-    if (A.commandsLeft(s, f) < 1 || !A.chance(s, 40)) return;
+    if ((A.commandsLeft(s, f) < 1 && !A.courtFree(s, f)) || !A.chance(s, 40)) return;
     const envoy = A.officersOf(s, f).filter((o) => !A.officerFree(s, f, o.id, { gov: true })).sort((a, b) => b.dip - a.dip)[0];
     if (!envoy) return;
     const others = A.aliveFactions(s).filter((g) => g !== f), my = A.strength(s, f);
@@ -112,6 +112,40 @@
     }
   }
 
+  // Hire a free company when rich, and keep it with the main army.
+  function companies(s, f, armyProv) {
+    const fac = A.F(s, f); let x = A.champ.of(s, f);
+    if (!x && fac.gold > 430 && A.chance(s, 30)) {
+      const free = Object.keys(A.COMPANIES).filter((id) => !A.champ.all(s)[id].f);
+      const p = A.provsOf(s, f).filter((q) => !q.acted).sort((a, b) => (b.id === armyProv) - (a.id === armyProv) || (b.id === fac.seat) - (a.id === fac.seat))[0];
+      if (free.length && p) { A.do(s, f, 'hire', { p: p.id, id: A.pick(s, free) }); x = A.champ.of(s, f); }
+    }
+    if (x && x.c.army == null) { const a = A.armiesAt(s, x.c.p, f)[0]; if (a) A.do(s, f, 'coJoin', { army: a.id }); }
+    if (x && fac.gold < 40) A.do(s, f, 'coDismiss', {});
+  }
+
+  // The less honourable houses play dirty against rivals on their border — above all against a runaway leader.
+  function plots(s, f) {
+    const fac = A.F(s, f), D = A.FDEF[f], diff = A.DIFF[s.difficulty];
+    if (D.ai.honor >= 0.75 || !A.chance(s, 12 + (0.75 - D.ai.honor) * 30)) return;
+    if (A.commandsLeft(s, f) < 2 && !A.courtFree(s, f)) return;
+    const L = A.dip.leader(s), seen = {}, cands = [];
+    for (const p of A.provsOf(s, f)) for (const n of p.nb) {
+      const q = A.P(s, n); if (seen[n] || !q.owner || q.owner === f) continue; seen[n] = 1;
+      if (A.allied(s, f, q.owner)) continue;
+      if (A.isMe(s, q.owner) && s.turn < diff.grace + 4) continue;
+      let w = A.atWar(s, f, q.owner) ? 3 : A.getRel(s, f, q.owner) < 0 ? 1.5 : 0;
+      if (L.f === q.owner && L.n >= 11) w += 3;
+      if (w > 0) cands.push({ q, w: w + A.rnd(s) });
+    }
+    const t = cands.sort((a, b) => b.w - a.w)[0]; if (!t) return;
+    const q = t.q, bt = A.plot.bribeTarget(s, q);
+    const type = bt && bt.loyalty < 45 && fac.gold > 260 ? 'bribe' : q.fort >= 2 && fac.gold > 120 ? 'sabotage' : q.unrest >= 30 && fac.gold > 120 ? 'incite' : 'raid';
+    const stat = A.PLOTS[type].stat;
+    const o = A.officersOf(s, f).filter((x) => !x.ruler && !A.officerFree(s, f, x.id, { gov: true })).sort((a, b) => b[stat] - a[stat])[0];
+    if (o) A.do(s, f, 'plot', { type, p: q.id, o: o.id });
+  }
+
   function reserve(s, f, p) { const front = isFront(s, f, p); return { inf: p.id === A.F(s, f).seat ? 300 : front ? 200 : 100, arc: front ? 100 : 0, cav: 0, sie: 0 }; }
   function spare(s, f, p) { const r = reserve(s, f, p), t = A.noTroops(); for (const c of A.CLS) t[c] = Math.max(0, p.garrison[c] - r[c]); return t; }
 
@@ -124,6 +158,7 @@
       if (best && A.power(best.t) >= 350) A.do(s, f, 'muster', { p: best.p.id, o: oid, troops: best.t });
     }
     let threshold = diff.threshold - (D.ai.agg - 0.5) * 0.4;
+    const lead = A.dip.leader(s);
     for (const army of A.armiesOf(s, f).slice()) {
       if (s.over || !fac.alive) return;
       if (!A.army(s, army.id) || army.moved) continue;
@@ -141,6 +176,7 @@
         let sc = ratio;
         if (q.owner && A.atWar(s, f, q.owner)) sc *= 1.2;
         if (fac.focus && fac.focus.until > s.turn && q.owner === fac.focus.target) sc *= 1.4;
+        if (lead.f && lead.f !== f && lead.n >= 12 && q.owner === lead.f) sc *= 1.2; // everyone leans on a runaway leader
         if (n === A.CAPITAL) sc *= 1.3; if (q.seal || (q.owner && A.F(s, q.owner).seat === n && A.F(s, q.owner).seals.length)) sc *= 1.2; if (!q.owner) sc *= 1.1;
         if (sc > bs) { bs = sc; bestT = n; }
       }
@@ -165,7 +201,10 @@
     diplomacy(s, f);
     seals(s, f);
     const a0 = A.armiesOf(s, f)[0];
-    economy(s, f, a0 && A.P(s, a0.loc).owner === f ? a0.loc : null);
+    const home = a0 && A.P(s, a0.loc).owner === f ? a0.loc : null;
+    plots(s, f);
+    companies(s, f, home);
+    economy(s, f, home);
     await military(s, f, cmds, handler);
   };
 })();

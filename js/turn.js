@@ -25,7 +25,8 @@
       const fc = A.econ.forecast(s, f, season);
       fac.gold += fc.gold - fc.upGold; fac.food += fc.food - fc.upFood;
       if (f === s.player) s.stats.goldEarned += fc.gold;
-      if (fac.gold < 0) { fac.gold = 0; desert(s, f, 0.06); for (const o of A.officersOf(s, f)) if (!o.ruler) o.loyalty = cl(o.loyalty - 4, 0, 100); if (A.isMe(s, f)) A.log(s, 'The treasury is empty and the soldiers go unpaid: 6% desert and your officers grumble (loyalty −4).', 'me'); }
+      if (fac.gold < 0) { const co = A.champ.of(s, f); if (co) A.champ.release(s, co.id, 'go unpaid and ride away; their contract is void.');
+        fac.gold = 0; desert(s, f, 0.06); for (const o of A.officersOf(s, f)) if (!o.ruler) o.loyalty = cl(o.loyalty - 4, 0, 100); if (A.isMe(s, f)) A.log(s, 'The treasury is empty and the soldiers go unpaid: 6% desert and your officers grumble (loyalty −4).', 'me'); }
       if (fac.food < 0) { fac.food = 0; desert(s, f, season === 3 ? 0.18 : 0.1); for (const p of A.provsOf(s, f)) p.loyalty = cl(p.loyalty - 4, 0, 100); if (A.isMe(s, f)) A.log(s, `The granaries are empty: ${season === 3 ? 18 : 10}% of your soldiers desert and the provinces lose faith (loyalty −4).`, 'me'); }
     }
     for (const p of A.provs(s)) {
@@ -57,6 +58,7 @@
         A.log(s, `${o.name} abandons ${A.fname(old)} and defects to ${A.fname(g)}.`, mine ? 'me' : 'event');
       } else if (mine && o.loyalty < 35) A.log(s, `⚠ ${o.name} is discontent (loyalty ${o.loyalty}). Below 25 they may defect; a reward or a post would help.`, 'me');
     }
+    A.champ.season(s);
     A.war.cleanup(s);
     if (s.capital.holder && A.F(s, s.capital.holder).alive) s.capital.seasons++;
   }
@@ -86,15 +88,18 @@
   };
 
   function begin(s) {
-    for (const p of A.provs(s)) { p.acted = false; p.recruited = 0; p.levied = false; p.feted = false; p.aided = false; }
+    for (const p of A.provs(s)) { p.acted = (p.settle || 0) > s.turn; p.recruited = 0; p.levied = false; p.feted = false; p.aided = false; }
     for (const a of s.armies) a.moved = false;
     for (const o of Object.values(s.officers)) {
       o.busy = false; o.rewarded = false;
       if (o.status === 'captured' && o.until <= s.turn) { if (A.F(s, o.faction).alive) { o.status = 'active'; o.loc = A.F(s, o.faction).seat; A.log(s, `${o.name} is ransomed and returns to ${A.fname(o.faction)}.`, 'event'); } else o.status = 'gone'; }
     }
     A.dip.expire(s);
+    // Fear of a runaway leader: once a house holds twelve provinces the other courts cool toward it and draw together.
+    { const L = A.dip.leader(s); if (L.f && L.n >= 12) { const rest = A.aliveFactions(s).filter((g) => g !== L.f); for (const g of rest) { A.addRel(s, g, L.f, -1); for (const h of rest) if (g < h) A.addRel(s, g, h, 1); } } }
     for (const f of A.aliveFactions(s)) {
       const fac = A.F(s, f);
+      fac.courtUsed = false;
       if (s.turn % 4 === 0 && fac.beast.awake && fac.beast.charges < fac.seals.length) fac.beast.charges++;
       if (fac.focus && fac.focus.until <= s.turn) fac.focus = null;
     }
@@ -106,6 +111,7 @@
       else if (A.chance(s, 20)) A.events.auto(s, f);
     }
     if (s.autoPlayer) A.dip.autoAnswer(s);
+    A.champ.sync(s);
   }
 
   // Ends the current season. `handler` lets the UI stage battles that involve the human player.

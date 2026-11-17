@@ -76,9 +76,11 @@
       return rep;
     }
     const season = s.turn % 4;
+    const aCo = A.champ.withArmy(s, army), dCo = defF ? A.champ.at(s, defF, pid) : null;
+    const coSpec = (x) => (x ? { id: x.id, men: x.c.men } : null);
     const spec = { seed: A.rint(s, 1, 2147483000), terrain: p.terrain, fort: p.fort, pid,
-      att: { f, name: A.fname(f), cmd: cmd.name, lead: cmd.lead, troops: { ...army.troops }, morale: (season === 3 ? -10 : 0) + (A.F(s, f).food <= 0 ? -10 : 0) },
-      def: { f: defF, name: A.fname(defF), cmd: d.cmdName, lead: d.lead, troops: { ...d.troops }, morale: (p.fort > 0 ? 5 : 0) + (p.loyalty >= 70 ? 5 : p.loyalty <= 30 ? -5 : 0) },
+      att: { f, name: A.fname(f), cmd: cmd.name, lead: cmd.lead, troops: { ...army.troops }, champ: coSpec(aCo), morale: (season === 3 ? -10 : 0) + (A.F(s, f).food <= 0 ? -10 : 0) },
+      def: { f: defF, name: A.fname(defF), cmd: d.cmdName, lead: d.lead, troops: { ...d.troops }, champ: coSpec(dCo), morale: (p.fort > 0 ? 5 : 0) + (p.loyalty >= 70 ? 5 : p.loyalty <= 30 ? -5 : 0) },
       beast: { att: beastSpec(s, f, defF, !meAtt), def: beastSpec(s, defF, f, !meDef) } };
     const b = A.battle.create(spec);
     if ((meAtt || meDef) && handler && handler.fight) await handler.fight(b, { side: meAtt ? 'att' : 'def', mode: opts.mode, beast: opts.beast, province: p, rep });
@@ -90,6 +92,8 @@
     const scale = (t, k) => { for (const c of A.CLS) t[c] = Math.floor(t[c] * k); return t; };
     const aLeft = { ...res.att.left }; if (!attWon) scale(aLeft, res.retreated === 'att' ? 0.9 : 0.75);
     army.troops = aLeft;
+    if (aCo && res.att.champ) aCo.c.men = Math.floor(res.att.champ.men * (attWon ? 1 : res.retreated === 'att' ? 0.9 : 0.75));
+    if (dCo && res.def.champ) dCo.c.men = Math.floor(res.def.champ.men * (!attWon ? 1 : res.retreated === 'def' ? 0.85 : 0.6));
     // --- Defender's survivors, as a per-class ratio applied to garrison and armies
     const r = {}; for (const c of A.CLS) r[c] = d.troops[c] > 0 ? res.def.left[c] / d.troops[c] : 0;
     if (attWon) for (const c of A.CLS) r[c] *= res.retreated === 'def' ? 0.85 : 0.6;
@@ -104,10 +108,12 @@
         else A.addTroops(dest.garrison, pooled);
         rep.notes.push(`${A.total(pooled)} defenders fall back to ${dest.name}.`);
       } else { for (const a of d.armies.slice()) A.removeArmy(s, a.id); if (A.total(pooled) > 0) rep.notes.push('The surviving defenders have nowhere to retreat and scatter.'); }
+      if (dCo) { if (dest) { dCo.c.p = dest.id; dCo.c.army = d.armies.length && A.total(pooled) > 0 ? d.armies[0].id : null; } else A.champ.release(s, dCo.id, `are scattered in the fall of ${p.name}; their contract is void.`); }
       p.garrison = A.noTroops();
       war.conquer(s, pid, f, { siege: res.breached });
       army.loc = pid; cmd.loc = pid;
     }
+    for (const x of [aCo, dCo]) if (x && x.c.f && x.c.men < x.D.men * 0.15) { A.champ.release(s, x.id, `are broken at ${p.name}; the survivors disband.`); rep.notes.push(`${x.D.name} are broken and disband.`); }
     // --- Starwyrm charges
     for (const side of ['att', 'def']) { const ff = side === 'att' ? f : defF; if (res.beastUsed[side] && ff) { const fac = A.F(s, ff); fac.beast.charges = Math.max(0, fac.beast.charges - 1); A.beast.dread(s, ff); if (A.isMe(s, ff)) s.stats.beastUses++; rep.notes.push(`${A.fname(ff)} spent a starfire charge (${fac.beast.charges} left); other courts grow fearful.`); } }
     // --- Commanders
@@ -165,6 +171,7 @@
     const p = A.P(s, pid), old = p.owner;
     if (p.governor) { const g = A.O(s, p.governor); A.clearJob(s, g.id); }
     p.owner = newF; p.governor = null; p.acted = true; // a province taken this season cannot also act
+    p.settle = newF ? s.turn + (old ? A.SETTLE_HOUSE : A.SETTLE_FREE) : 0; // conquered land takes time to follow its new master's orders
     p.loyalty = old ? 30 : 42; p.unrest = old ? 35 : 22; p.pros = Math.max(5, p.pros - 4);
     if (opt && opt.siege && p.fort > 0) p.fort--;
     if (pid === A.CAPITAL) { s.capital.holder = newF; s.capital.seasons = 0; A.log(s, newF ? `♛ ${A.fname(newF)} now holds Aurelion, the royal capital.` : 'Aurelion has thrown off all masters.', 'event'); }

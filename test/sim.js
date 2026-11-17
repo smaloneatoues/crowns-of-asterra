@@ -1,7 +1,7 @@
 // Headless campaign simulation: node test/sim.js [campaigns] [maxSeasons]
 // Plays whole campaigns with every house under AI control and checks the rules never corrupt the state.
 const fs = require('fs'), path = require('path'), vm = require('vm');
-for (const f of ['data', 'core', 'actions', 'diplomacy', 'battle', 'war', 'events', 'ai', 'turn']) {
+for (const f of ['data', 'core', 'actions', 'diplomacy', 'battle', 'war', 'intrigue', 'events', 'ai', 'turn']) {
   vm.runInThisContext(fs.readFileSync(path.join(__dirname, '..', 'js', f + '.js'), 'utf8'), { filename: f + '.js' });
 }
 const A = globalThis.A;
@@ -33,6 +33,13 @@ function check(s, where) {
     for (const x of fac.seals) { if (seen[x]) bad(`seal ${x} duplicated`); seen[x] = 1; }
   }
   for (const p of A.provs(s)) if (p.seal) { if (seen[p.seal]) bad(`seal ${p.seal} duplicated at ${p.name}`); seen[p.seal] = 1; }
+  for (const [id, c] of Object.entries(A.champ.all(s))) {
+    if (!c.f) continue;
+    if (!A.F(s, c.f).alive) bad(`company ${id} serves dead house ${c.f}`);
+    if (!Number.isInteger(c.men) || c.men <= 0) bad(`company ${id} men=${c.men}`);
+    if (c.army != null) { const a = A.army(s, c.army); if (!a || a.faction !== c.f) bad(`company ${id} rides with a missing army`); }
+    else if (!A.P(s, c.p) || A.P(s, c.p).owner !== c.f) bad(`company ${id} garrisons foreign ${c.p}`);
+  }
   if (Object.keys(seen).length !== 5) bad(`seals in play: ${Object.keys(seen).join(',')}`);
 }
 
