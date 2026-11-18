@@ -63,6 +63,7 @@
         <button class="big" data-a="continue" ${auto ? '' : 'disabled'}>Continue${auto ? ` <small>${esc(auto.house)} · ${esc(auto.date)}</small>` : ' <small>no autosave yet</small>'}</button>
         <button class="big" data-a="saves">Load Game</button>
         <button class="big" data-a="guide">How to Play</button>
+        <button class="big" data-a="hall">Hall of Kings <small>${Object.keys(A.glory.hall.load().deeds).length}/${A.DEEDS.length} deeds</small></button>
       </div>
       ${A.store.ok() ? '' : '<p class="why">This browser is blocking local storage, so saving is unavailable.</p>'}
       <div class="row center">${audioBtns()}</div>
@@ -95,6 +96,12 @@
     await tutorial(); await turnStart();
   };
   H.continue = () => loadSlot('auto');
+  H.hall = async () => {
+    const h = A.glory.hall.load();
+    const runs = h.runs.length ? `<table class="tt"><tr><th>#</th><th>House</th><th>Rank</th><th>Score</th><th>Ended</th><th>Level</th></tr>${h.runs.map((r, i) => `<tr><td>${i + 1}</td><th>${r.won ? '♛ ' : ''}${esc(r.house)}</th><td>${esc(r.rank)}</td><td><b>${r.score}</b></td><td>${esc(r.date)}${r.won ? '' : ' (lost)'}</td><td>${esc(r.diff)}</td></tr>`).join('')}</table>` : '<p class="note">No finished campaigns yet. Finish one — win or lose — and it is written here.</p>';
+    const deeds = A.DEEDS.map((d) => `<div class="deed ${h.deeds[d[0]] ? 'got' : ''}"><b>${h.deeds[d[0]] ? '🏅' : '○'} ${esc(d[1])}</b><small>${esc(d[2])}</small></div>`).join('');
+    await ask(`<h2>Hall of Kings</h2><p class="note">Your best campaigns and the deeds you have earned. Kept in this browser.</p><h3>Best reigns</h3>${runs}<h3>Deeds <small>${Object.keys(h.deeds).length} of ${A.DEEDS.length}</small></h3><div class="deeds">${deeds}</div><div class="row">${btn('Close', 'ok', 'go')}</div>`, 'wide');
+  };
   function setState(s) { S = s; ui.s = s; ui.screen = 'game'; ui.mode = null; ui.busy = false; ui.tab = 'province'; ui.sel = s.player ? A.F(s, s.player).seat : null; ui.dip = { target: null, envoy: null, against: null }; }
   async function loadSlot(slot) {
     const r = A.store.load(slot); if (!r.ok) { toast(r.reason); return; }
@@ -275,10 +282,15 @@
     if (!fac.heir) return 'You have no named heir. If your ruler falls in battle the house may fracture (Officers tab).';
     return 'All is in order. End the season when ready.';
   }
+  function ambStrip() {
+    const v = A.glory.ambView(S); if (S.over) return '';
+    if (!v) return `<div class="amb idle"><b>⚑ Ambition:</b> your council is choosing the next goal…</div>`;
+    return `<div class="amb ${v.done ? 'done' : ''}" title="A goal from your council. Meet it before time runs out and you get the reward when the next season starts. Missing it costs nothing."><b>⚑ ${esc(v.name)}:</b> ${esc(v.text)} <span class="ambp">${Math.min(v.have, v.goal)}/${v.goal}</span>${meter(100 * v.have / v.goal, 'green')}<small>${v.done ? '✔ Done! Keep it true until the season ends.' : `${v.left} season${v.left === 1 ? '' : 's'} left`} · Reward: ${esc(v.reward)}</small></div>`;
+  }
   function renderSide() {
     const tabs = TABS.map(([id, n]) => `<button class="${ui.tab === id ? 'on' : ''}" data-a="tab" data-id="${id}">${n}</button>`).join('');
     const body = { province: provincePanel, realm: realmPanel, officers: officersPanel, diplomacy: diplomacyPanel, beast: beastPanel, guide: guidePanel }[ui.tab]();
-    return `<aside class="side"><nav class="tabs">${tabs}</nav><div class="advisor"><b>Advisor:</b> ${esc(advisor())}</div><div class="panel">${body}</div></aside>`;
+    return `<aside class="side"><nav class="tabs">${tabs}</nav><div class="advisor"><b>Advisor:</b> ${esc(advisor())}</div>${ambStrip()}<div class="panel">${body}</div></aside>`;
   }
   const kv = (k, v, tip) => `<div class="kv" ${tip ? `title="${esc(tip)}"` : ''}><span>${k}</span><b>${v}</b></div>`;
 
@@ -452,13 +464,15 @@
     return h + '</table>';
   }
 
+  const upTag = (o, k) => (o.up && o.up[k] ? ` <small class="pos" title="Gained from experience">(+${o.up[k]})</small>` : '');
+  function deedToasts() { const fresh = A.glory.hall.unlock(S); if (fresh.length) { A.sfx.play('bell'); toast(`🏅 Deed earned: ${fresh.map((d) => d[1]).join(', ')}`); } return fresh; }
   function officersPanel() {
     const f = me(), fac = A.F(S, f);
-    let h = `<h2>Officers of ${esc(A.fname(f))}</h2><p class="note">Leadership commands armies. Administration governs provinces and searches sites. Diplomacy carries proposals. Below loyalty 30 a commander may refuse to attack; below 25 an officer may defect.</p>${S.over ? '' : courtNote()}`;
+    let h = `<h2>Officers of ${esc(A.fname(f))}</h2><p class="note">Leadership commands armies. Administration governs provinces and searches sites. Diplomacy carries proposals. Below loyalty 30 a commander may refuse to attack; below 25 an officer may defect. Officers get better at the job they do: commanders from battles, governors from ruling, envoys from talks.</p>${S.over ? '' : courtNote()}`;
     const all = Object.values(S.officers).filter((o) => o.faction === f && (o.status === 'active' || o.status === 'captured')).sort((a, b) => b.ruler - a.ruler || b.lead + b.admin + b.dip - a.lead - a.admin - a.dip);
     for (const o of all) {
-      h += `<div class="ocard"><div class="ohead">${A.art.portrait(o, 70)}<div><b>${esc(o.name)}</b> <small>${esc(o.trait)}${o.ruler ? ' · Ruler' : ''}${fac.heir === o.id ? ' · Heir' : ''}</small><div class="obio">${esc(o.bio)}</div></div></div>
-        <div class="ostats">${kv('Leadership', `${o.lead} ${meter(o.lead)}`)}${kv('Administration', `${o.admin} ${meter(o.admin, 'green')}`)}${kv('Diplomacy', `${o.dip} ${meter(o.dip, 'blue')}`)}${kv('Loyalty', `<span class="${o.loyalty < 35 ? 'neg' : ''}">${o.loyalty}</span> ${meter(o.loyalty, o.loyalty < 35 ? 'red' : 'blue')}`)}</div>
+      h += `<div class="ocard"><div class="ohead">${A.art.portrait(o, 70)}<div><b>${esc(o.name)}</b> <small>${esc(o.trait)}${o.ruler ? ' · Ruler' : ''}${fac.heir === o.id ? ' · Heir' : ''}</small>${A.glory.rank(o) ? ` <span class="vet">★ ${A.glory.rank(o)}</span>` : ''}<div class="obio">${esc(o.bio)}</div></div></div>
+        <div class="ostats">${kv('Leadership', `${o.lead}${upTag(o, 'lead')} ${meter(o.lead)}`)}${kv('Administration', `${o.admin}${upTag(o, 'admin')} ${meter(o.admin, 'green')}`)}${kv('Diplomacy', `${o.dip}${upTag(o, 'dip')} ${meter(o.dip, 'blue')}`)}${kv('Loyalty', `<span class="${o.loyalty < 35 ? 'neg' : ''}">${o.loyalty}</span> ${meter(o.loyalty, o.loyalty < 35 ? 'red' : 'blue')}`)}</div>
         <div class="sub2">${esc(jobText(o))}${o.busy ? ' · on a mission this season' : ''}${o.status === 'captured' ? ` · prisoner until ${A.dateStr(S, o.until)}` : ''}</div>`;
       if (!o.ruler && o.status === 'active' && !S.over) h += `<div class="grid2">${actBtn('Reward', 'reward', { o: o.id }, `${A.cost.reward} gold · loyalty +10`)}${actBtn('Name heir', 'heir', { o: o.id }, 'their loyalty +12, others −4')}</div>`;
       h += '</div>';
@@ -535,6 +549,10 @@
       <h3>In a battle</h3><ul class="rules"><li>Each round you get to use a few units. A better leader lets you use more.</li><li>A unit can move, then do one thing: attack, shoot, hold still, or smash a wall.</li><li><b>Infantry</b> (foot soldiers): tough all-rounders. They can climb walls.</li><li><b>Archers</b>: shoot from far away. Weak up close.</li><li><b>Cavalry</b> (horses): fast. They hit extra hard after a running start and they wreck archers. Don't run them into infantry that is holding still.</li><li><b>Siege crews</b>: slow, but they knock down walls.</li><li><b>Gang up!</b> If two of your units are touching the same enemy, you hit harder.</li><li>Units that get scared or lose most of their men <b>run away</b>.</li><li>The attacker has <b>12 rounds</b> to win. If time runs out, the defender wins. Attacking in winter is harder.</li><li>Enemy moves play out one at a time. Click the field to speed them up.</li></ul>
       <h3>Making friends</h3><ul class="rules"><li>Open the <b>Diplomacy</b> tab to make deals. Every deal shows your <b>chance</b> of a yes and why.</li><li><b>Gifts</b> always work and make a house like you more.</li><li>A <b>pact</b> or <b>alliance</b> stops a house from attacking you.</li><li>Don't break a deal. Everyone remembers, and everyone trusts you less.</li></ul>
       <h3>The Starwyrm (the dragon)</h3><p class="note">There are 5 magic seals. Find them at old ruins (gold stars on the map), take them from a house by capturing its home castle, or trade for them. Get <b>3 seals</b> and pay a big price to wake the dragon. Then you can use its power in battle. The <b>Starwyrm</b> tab has the details.</p>
+      <h3>Ambitions (bonus goals)</h3><ul class="rules"><li>Your council always gives you one small goal, like "hold 6 provinces" or "win 2 battles". It sits under the Advisor.</li><li>Do it in time and you get a prize (gold, food, soldiers or happier people) when the next season starts.</li><li>Miss it? Nothing bad happens. You just get a new one.</li></ul>
+      <h3>Veterans (officers level up)</h3><ul class="rules"><li>Officers get better at the job you give them. Commanders gain <b>leadership</b> from battles (more for a win). Governors gain <b>administration</b> every season. Envoys gain <b>diplomacy</b> from talks.</li><li>After a few gains they become a <b>Veteran</b>, then <b>Renowned</b>, then <b>Legendary</b>. Keep your best people busy!</li></ul>
+      <h3>Score and the Hall of Kings</h3><ul class="rules"><li>When a campaign ends you get a <b>score</b> and a <b>rank</b>, from Hedge Knight up to High King of Legend. Winning fast and on a harder level scores more.</li><li><b>Deeds</b> are trophies for special feats. See them all in the <b>Hall of Kings</b> on the title screen.</li></ul>
+      <h3>Handy keys</h3><ul class="rules"><li><b>N</b> — next province that still has an order. <b>E</b> — end the season. <b>1–6</b> — switch tabs. <b>Esc</b> — cancel a march.</li><li>In a battle, the <b>Fast</b> button plays everything at double speed.</li></ul>
       <h3>How you lose</h3><ul class="rules"><li>You lose all your land.</li><li>Your ruler dies and there is nobody to take over. Name an <b>heir</b> so that can't happen.</li><li>Another house wins first.</li></ul><p class="note">Sound and music can be switched on and off with the <b>♫ FX</b> and <b>♪ Music</b> buttons at the top.</p>`;
   }
   function guidePanel() { return `<h2>Guide</h2><div class="row"><button data-a="tutorial">Replay the tutorial</button></div>${guideHTML()}${victoryBox()}`; }
@@ -576,7 +594,11 @@
       const r = A.events.choose(S, +ans.v); render();
       await ask(`<h2>${esc(v.title)}</h2><p>${esc(r.ok ? r.text : r.reason)}</p><div class="row">${btn('Continue', 'ok', 'go')}</div>`);
     }
-    autosave(); render();
+    if (S.ambNews) {
+      const nw = S.ambNews; S.ambNews = null; A.sfx.play('win');
+      await ask(`<div class="sub2">${A.dateStr(S)} · Ambition fulfilled</div><h2 class="pos">⚑ ${esc(nw.name)}</h2><p>You did it: <b>${esc(nw.text)}</b>.</p><p>Your reward: <b>${esc(nw.reward)}</b>.</p><div class="row">${btn('Splendid', 'ok', 'go')}</div>`);
+    }
+    autosave(); render(); deedToasts();
     if (ui.lastTurn !== S.turn) { ui.lastTurn = S.turn; seasonBanner(); }
   }
   function seasonBanner() { const el = document.createElement('div'); el.className = 'season-banner s' + (S.turn % 4); el.innerHTML = `<b>${A.SEASONS[S.turn % 4]}</b><span>Year ${1 + Math.floor(S.turn / 4)}</span>`; document.body.appendChild(el); setTimeout(() => el.remove(), 2300); A.sfx.play('bell'); }
@@ -611,12 +633,16 @@
   async function summary() {
     const o = S.over; if (!o) return;
     const st = S.stats, won = o.result === 'victory'; A.sfx.play(won ? 'crown' : 'lose');
+    const sc = A.glory.score(S), fresh = A.glory.hall.unlock(S);
+    if (!S.recorded) { S.recorded = true; A.glory.hall.record(S); autosave(); }
+    const scoreBox = `<div class="scorebox"><div class="rank">${esc(sc.rank)}</div><div class="pts">${sc.total} <small>points</small></div><small>${sc.parts.filter((x) => x[1]).map((x) => `${esc(x[0])} ${x[1]}`).join(' · ')}${sc.mult !== 1 ? ` · ×${sc.mult} for ${esc(A.DIFF[S.difficulty].name)}` : ''}</small>${fresh.length ? `<div class="pos">🏅 New deeds: ${fresh.map((d) => esc(d[1])).join(', ')}</div>` : ''}</div>`;
     const stands = A.FIDS.map((f) => `<div class="kv"><span>${chip(f)} ${A.F(S, f).alive ? '' : '<small>fallen</small>'}</span><b>${A.provsOf(S, f).length} provinces</b></div>`).join('');
     const story = S.log.filter((l) => l.k === 'event').slice(-10).map((l) => `<div><small>${A.dateStr(S, l.t)}</small> ${esc(l.text)}</div>`).join('');
-    const ans = await ask(`<div class="sub2">${A.dateStr(S)} · ${A.DIFF[S.difficulty].name} · seed ${S.seed0}</div><h2 class="${won ? 'pos' : 'neg'}">${won ? '♛ Victory — ' + (o.kind === 'unification' ? 'Asterra United' : 'A Recognized Succession') : '✖ Defeat'}</h2><p>${esc(o.text)}</p>
-      <div class="cols"><div><h3>Your reign</h3>${kv('Seasons ruled', S.turn)}${kv('Provinces at the end', A.provsOf(S, me()).length)}${kv('Most provinces held', st.peakProvinces)}${kv('Battles won / lost', `${st.battlesWon} / ${st.battlesLost}`)}${kv('Provinces taken / lost', `${st.provincesTaken} / ${st.provincesLost}`)}${kv('Soldiers lost / enemies felled', `${st.menLost} / ${st.enemiesSlain}`)}${kv('Treaties sealed', st.treaties)}${kv('Gold collected', st.goldEarned)}${kv('Starwyrm called upon', st.beastUses)}</div>
+    const ans = await ask(`<div class="sub2">${A.dateStr(S)} · ${A.DIFF[S.difficulty].name} · seed ${S.seed0}</div><h2 class="${won ? 'pos' : 'neg'}">${won ? '♛ Victory — ' + (o.kind === 'unification' ? 'Asterra United' : 'A Recognized Succession') : '✖ Defeat'}</h2><p>${esc(o.text)}</p>${scoreBox}
+      <div class="cols"><div><h3>Your reign</h3>${kv('Ambitions fulfilled', S.ambDone || 0)}${kv('Seasons ruled', S.turn)}${kv('Provinces at the end', A.provsOf(S, me()).length)}${kv('Most provinces held', st.peakProvinces)}${kv('Battles won / lost', `${st.battlesWon} / ${st.battlesLost}`)}${kv('Provinces taken / lost', `${st.provincesTaken} / ${st.provincesLost}`)}${kv('Soldiers lost / enemies felled', `${st.menLost} / ${st.enemiesSlain}`)}${kv('Treaties sealed', st.treaties)}${kv('Gold collected', st.goldEarned)}${kv('Starwyrm called upon', st.beastUses)}</div>
       <div><h3>The realm</h3>${stands}</div></div><h3>Chronicle</h3><div class="blog">${story}</div>
-      <div class="row">${btn('New campaign', 'new', 'go')}${btn('Look over the map', 'map')}${btn('Title screen', 'title')}</div>`, 'wide');
+      <div class="row">${btn('New campaign', 'new', 'go')}${btn('Hall of Kings', 'hall')}${btn('Look over the map', 'map')}${btn('Title screen', 'title')}</div>`, 'wide');
+    if (ans.v === 'hall') { await H.hall(); return summary(); }
     if (ans.v === 'new') { ui.screen = 'new'; S = null; ui.s = null; render(); } else if (ans.v === 'title') H.title(); else render();
   }
   H.summary = () => summary();
@@ -646,7 +672,11 @@
   });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && ui.mode) { ui.mode = null; render(); }
-    if ((e.key === 'n' || e.key === 'N') && S && ui.screen === 'game' && !ui.busy && !S.over && $('#modal').hidden && $('#battle').hidden && !/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) H.nextProv();
+    if (!S || ui.screen !== 'game' || ui.busy || !$('#modal').hidden || !$('#battle').hidden || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k === 'n' && !S.over) H.nextProv();
+    else if (k === 'e' && !S.over) H.endSeason();
+    else if (k >= '1' && k <= '6') { ui.tab = TABS[+k - 1][0]; render(); }
   });
   window.addEventListener('error', (e) => { toast('Unexpected error: ' + e.message); });
   render();

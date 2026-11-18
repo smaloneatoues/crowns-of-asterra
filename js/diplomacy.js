@@ -110,6 +110,7 @@
       const o = A.O(s, a.envoy); o.busy = true;
       const ch = dip.chance(s, f, a);
       const ok = a.type === 'gift' || A.chance(s, ch.pct);
+      if (a.type !== 'gift') A.glory.learn(s, o, 'dip', ok ? 2 : 1);
       if (a.type !== 'gift' && fac.awe[a.target]) delete fac.awe[a.target];
       const text = ok ? dip.apply(s, f, a.target, a.type, a) : dip.refuse(s, f, a.target, a.type);
       if (!A.isMe(s, f) && (a.type !== 'gift' || a.target === s.player)) A.log(s, text, 'dip');

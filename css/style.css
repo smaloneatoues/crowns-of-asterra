@@ -208,3 +208,10 @@ button.aud.off { opacity: .5; text-decoration: line-through; } .row.center { jus
 .armyrow.co { border-color: #a8851f; background: #f6e7b099; }
 .corow { display: flex; gap: 8px; align-items: center; padding: 5px 7px; margin: 4px 0; background: #f4ebcf99; border: 1.5px solid #8a6f44; border-radius: 3px; } .corow.mine { border-color: #a8851f; background: #f6e7b0; } .corow svg { vertical-align: -2px; }
 @media (prefers-reduced-motion: reduce) { .u, .t, .bgrid, .dmg, .shot, .cell.flash, .await, .season-banner { animation-duration: .01s !important; } }
+
+/* Ambitions, veterans, score and the hall of kings */
+.amb { background: #efe2b4; border-bottom: 2px solid #8a6f44; padding: 5px 10px; font-size: 13px; color: #3a2a12; } .amb b { color: #6b4a12; } .amb .ambp { font-weight: bold; margin: 0 4px; } .amb small { display: block; opacity: .85; }
+.amb.done { background: #d5e6b0; } .amb.idle { font-style: italic; opacity: .8; } .amb .meter { width: 70px; vertical-align: middle; }
+.vet { background: #6b4a12; color: #ffe27a; border-radius: 3px; padding: 0 6px; font-size: 11.5px; white-space: nowrap; }
+.scorebox { text-align: center; border: 2px solid var(--gold); background: #f4ebcf99; border-radius: 4px; padding: 8px 12px; margin: 8px 0; } .scorebox .rank { font-size: 24px; font-variant: small-caps; letter-spacing: 1px; color: #6b4a12; } .scorebox .pts { font-size: 20px; font-weight: bold; }
+.deeds { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; } .deed { border: 1px solid #8a6f44; border-radius: 3px; padding: 5px 8px; opacity: .55; } .deed.got { opacity: 1; background: #f4ebcf; border-color: var(--gold); } .deed small { display: block; }

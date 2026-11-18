@@ -1,6 +1,6 @@
 // Battle sanity table: node test/battles.js
 const fs = require('fs'), path = require('path'), vm = require('vm');
-for (const f of ['data', 'core', 'actions', 'diplomacy', 'battle', 'war', 'intrigue', 'events', 'ai', 'turn']) vm.runInThisContext(fs.readFileSync(path.join(__dirname, '..', 'js', f + '.js'), 'utf8'), { filename: f + '.js' });
+for (const f of ['data', 'core', 'actions', 'diplomacy', 'battle', 'war', 'intrigue', 'glory', 'events', 'ai', 'turn']) vm.runInThisContext(fs.readFileSync(path.join(__dirname, '..', 'js', f + '.js'), 'utf8'), { filename: f + '.js' });
 const A = globalThis.A;
 const T = (inf, arc, cav, sie) => ({ inf, arc: arc || 0, cav: cav || 0, sie: sie || 0 });
 function run(label, att, def, o) {

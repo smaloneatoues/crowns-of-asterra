@@ -1,7 +1,7 @@
 // Headless campaign simulation: node test/sim.js [campaigns] [maxSeasons]
 // Plays whole campaigns with every house under AI control and checks the rules never corrupt the state.
 const fs = require('fs'), path = require('path'), vm = require('vm');
-for (const f of ['data', 'core', 'actions', 'diplomacy', 'battle', 'war', 'intrigue', 'events', 'ai', 'turn']) {
+for (const f of ['data', 'core', 'actions', 'diplomacy', 'battle', 'war', 'intrigue', 'glory', 'events', 'ai', 'turn']) {
   vm.runInThisContext(fs.readFileSync(path.join(__dirname, '..', 'js', f + '.js'), 'utf8'), { filename: f + '.js' });
 }
 const A = globalThis.A;

@@ -118,6 +118,7 @@
     for (const side of ['att', 'def']) { const ff = side === 'att' ? f : defF; if (res.beastUsed[side] && ff) { const fac = A.F(s, ff); fac.beast.charges = Math.max(0, fac.beast.charges - 1); A.beast.dread(s, ff); if (A.isMe(s, ff)) s.stats.beastUses++; rep.notes.push(`${A.fname(ff)} spent a starfire charge (${fac.beast.charges} left); other courts grow fearful.`); } }
     // --- Commanders
     cmd.loyalty = A.clamp(cmd.loyalty + (attWon ? 3 : -3), 0, 100);
+    A.glory.learn(s, cmd, 'lead', attWon ? 2 : 1); for (const oid of defCmds) A.glory.learn(s, A.O(s, oid), 'lead', attWon ? 1 : 2);
     const loserF = attWon ? defF : f, winnerF = attWon ? f : defF;
     const losers = attWon ? defCmds : [army.cmd];
     for (const oid of losers) { const note = war.loserFate(s, oid, winnerF, res.retreated && res.retreated === (attWon ? 'def' : 'att')); if (note) rep.notes.push(note); }

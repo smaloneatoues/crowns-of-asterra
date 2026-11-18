@@ -1,6 +1,6 @@
 // Pacing report: node test/pace.js [campaigns]. How fast do houses fall and how big is the leader, with every house AI-run?
 const fs = require('fs'), path = require('path'), vm = require('vm');
-for (const f of ['data', 'core', 'actions', 'diplomacy', 'battle', 'war', 'intrigue', 'events', 'ai', 'turn']) vm.runInThisContext(fs.readFileSync(path.join(__dirname, '..', 'js', f + '.js'), 'utf8'), { filename: f + '.js' });
+for (const f of ['data', 'core', 'actions', 'diplomacy', 'battle', 'war', 'intrigue', 'glory', 'events', 'ai', 'turn']) vm.runInThisContext(fs.readFileSync(path.join(__dirname, '..', 'js', f + '.js'), 'utf8'), { filename: f + '.js' });
 const A = globalThis.A;
 (async () => {
   const n = parseInt(process.argv[2] || '12', 10), marks = [12, 24, 40, 60], agg = {}, ends = [];

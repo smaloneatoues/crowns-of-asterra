@@ -75,3 +75,13 @@ Prints win rates for reference match-ups (cavalry vs archers, walls with and wit
 - **Battle animation and sound** (`js/ui-battle.js`, `js/sfx.js`). Moves, charges, volleys, wall hits, routs and Starfall are animated one at a time; click the field to speed up. Delegated battles can be watched or skipped. All sound and music is synthesised in the browser (no audio files) and can be switched off from the top bar.
 - **`serve.py`** serves the folder without browser caching: `python3 serve.py` then open http://localhost:8765.
 - **`node test/pace.js`** reports how fast houses fall and how large the leader grows in AI-only campaigns.
+
+## Added in the "glory" update
+
+- **Ambitions** — the council always sets one short goal (hold N provinces, win 2 battles, fill the granaries…) with a deadline and a reward. Shown under the Advisor. Missing one costs nothing.
+- **Veteran officers** — commanders gain leadership from battles, governors gain administration each season, envoys gain diplomacy from talks. Ranks: Veteran, Renowned, Legendary.
+- **Rival taunts** — rulers speak up in the chronicle when land changes hands between you and them.
+- **Score, rank and the Hall of Kings** — every finished campaign gets a score and a rank; the ten best and 16 deeds (trophies) are kept in the browser and shown from the title screen.
+- **Speed-ups** — keys `N` (next province), `E` (end season), `1`–`6` (tabs); a **Fast** button in battles.
+
+All of it lives in `js/glory.js` (rules, no DOM) plus small hooks in `war.js`, `turn.js`, `diplomacy.js` and the UI.

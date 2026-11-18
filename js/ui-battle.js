@@ -44,7 +44,7 @@
       const ev = b.fx.shift(); apply(ev);
       if (bu.skip || bu.skipAll) continue;
       draw(ev); sound(ev);
-      await sleep(DUR[ev.t] || 300);
+      await sleep((DUR[ev.t] || 300) * (bu.fast ? 0.45 : 1));
       if (bu.b !== b) return;
     }
     bu.anim = false; bu.skip = false; bu.view = snap(b);
@@ -118,7 +118,7 @@
     if (!live && !(b.over && !bu.anim)) {
       panel = `<div class="bturn">Round <b>${b.round}</b> / ${B.MAXR}${b.fort ? ` · Wall ${b.wallHp}/${b.wallMax}` : ''} · ${bu.watch ? `${esc(b.spec[bu.side].cmd)} commands for you` : 'The battle rages…'}</div>
         <div class="bunit note">${bu.watch ? 'Your officer is fighting this battle. Watch it unfold, or skip straight to the result.' : 'Click anywhere on the field to speed this up.'}</div>
-        <div class="row"><button class="go" data-a="bskip">${bu.watch ? 'Skip to the result ▶▶' : 'Speed up ▶▶'}</button></div>`;
+        <div class="row"><button class="go" data-a="bskip">${bu.watch ? 'Skip to the result ▶▶' : 'Speed up ▶▶'}</button><button data-a="bfast" title="Play battle moves at double speed">${bu.fast ? 'Fast ✔' : 'Fast'}</button></div>`;
     } else if (b.over) {
       const won = b.winner === bu.side;
       panel = `<div class="bover ${won ? 'pos' : 'neg'}"><h2>${won ? '✔ The field is yours' : '✖ The day is lost'}</h2><p>${esc(b.log[b.log.length - 1])}</p><button class="go big" data-a="bdone">Continue ▶</button></div>`;
@@ -145,6 +145,8 @@
 
   function after() { bu.confirmRetreat = false; flush(); }
   const locked = () => { if (bu.anim || bu.watch) { if (bu.anim && !bu.watch) bu.skip = true; return true; } return false; };
+  try { bu.fast = localStorage.getItem('crowns_of_asterra_fast') === '1'; } catch (e) { /* ignore */ }
+  H.bfast = () => { bu.fast = !bu.fast; try { localStorage.setItem('crowns_of_asterra_fast', bu.fast ? '1' : '0'); } catch (e) { /* ignore */ } const el = document.querySelector('[data-a="bfast"]'); if (el) el.textContent = bu.fast ? 'Fast ✔' : 'Fast'; };
   H.bskip = () => { if (bu.watch) bu.skipAll = true; else bu.skip = true; };
   H.bt = (d) => {
     const b = bu.b; if (!b || locked() || !myTurn()) return;

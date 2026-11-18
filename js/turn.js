@@ -59,6 +59,7 @@
       } else if (mine && o.loyalty < 35) A.log(s, `⚠ ${o.name} is discontent (loyalty ${o.loyalty}). Below 25 they may defect; a reward or a post would help.`, 'me');
     }
     A.champ.season(s);
+    A.glory.season(s);
     A.war.cleanup(s);
     if (s.capital.holder && A.F(s, s.capital.holder).alive) s.capital.seasons++;
   }
@@ -110,6 +111,7 @@
       if (A.isMe(s, f)) { if (A.chance(s, 60)) s.pendingEvent = A.events.roll(s, f, false); }
       else if (A.chance(s, 20)) A.events.auto(s, f);
     }
+    A.glory.ambTick(s);
     if (s.autoPlayer) A.dip.autoAnswer(s);
     A.champ.sync(s);
   }
